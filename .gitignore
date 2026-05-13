@@ -15,3 +15,7 @@ eval_persona_eval/
 *.pem
 
 .venv/
+
+# Test + vendored-tlsh build artifacts
+.pytest_cache/
+vendor/tlsh/build/

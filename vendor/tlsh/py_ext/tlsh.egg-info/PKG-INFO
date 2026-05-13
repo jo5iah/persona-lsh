@@ -1,0 +1,35 @@
+Metadata-Version: 2.4
+Name: tlsh
+Version: 4.5.0
+Summary: TLSH (C++ Python extension)
+Home-page: https://github.com/trendmicro/tlsh
+Author: Jonathan Oliver / Chun Cheng / Yanggui Chen
+Author-email: jon_oliver@trendmicro.com
+License: Apache or BSD
+Classifier: Intended Audience :: Developers
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: home-page
+Dynamic: license
+Dynamic: summary
+
+A C++ extension for TLSH
+
+Usage:
+import tlsh
+h1 = tlsh.hash(data)
+h2 = tlsh.hash(similar_data)
+score = tlsh.diff(h1, h2)
+
+h3 = tlsh.Tlsh()
+with open('file', 'rb') as f:
+    for buf in iter(lambda: f.read(512), b''):
+        h3.update(buf)
+    h3.final()
+assert h3.diff(h) == 0
+score = h3.diff(h1)
