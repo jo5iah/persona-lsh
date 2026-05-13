@@ -32,27 +32,46 @@ def _fake_persona_vector(layers: int = 28, hidden: int = 3584, seed: int = 0) ->
 # --- encoding tests ----------------------------------------------------------
 
 
-def test_encoding_user_spec_example():
-    # bucket 27 covers [0.7, 0.8). Demonstrates the user's spec:
-    # - 0.78 (upper quartile) -> (27, 28)
-    # - 0.72 (lower quartile) -> (27, 26)
-    # - 0.75 (middle)         -> (27, 27)
+def test_encoding_fractional_byte2_contract():
+    # Bucket 27 covers [0.7, 0.8). With fractional byte-2:
+    #   - 0.78 (frac~0.8)  -> b2 = round(255 * 0.8)  = 204
+    #   - 0.72 (frac~0.2)  -> b2 = round(255 * 0.2)  = 51
+    #   - 0.75 (frac~0.5)  -> b2 = round(255 * 0.4999..) = 127
+    #     (0.75 - 0.7 != 0.05 exactly in float; frac falls just under 0.5).
     # Edges with width 0.1 each, shifted so bucket 27 spans [0.7, 0.8).
     edges = np.arange(257, dtype=np.float64) * 0.1 - 2.0
     assert abs(edges[27] - 0.7) < 1e-9 and abs(edges[28] - 0.8) < 1e-9
 
     pairs = encode_vector(np.array([0.78, 0.72, 0.75], dtype=np.float32), edges)
-    assert list(pairs) == [27, 28, 27, 26, 27, 27]
+    assert list(pairs) == [27, 204, 27, 51, 27, 127]
 
 
 def test_encoding_clamps_at_extremes():
     edges = linear_edges(-1.0, 1.0)
-    # Value at the very top edge -> bucket 255, neighbor clamped to 255.
-    pairs = encode_vector(np.array([1.0, -1.0], dtype=np.float32), edges)
-    assert pairs[0] == N_BUCKETS - 1
-    assert pairs[1] == N_BUCKETS - 1  # +1 clamped
-    assert pairs[2] == 0
-    assert pairs[3] == 0  # -1 clamped
+    # At the very top edge (1.0): searchsorted side='right' puts it past the
+    # last bucket; clamped to bucket 255. frac >= 1, b2 clamped to 255.
+    # At the very bottom edge (-1.0): bucket 0, frac = 0, b2 = 0.
+    # Far above range (10.0): bucket 255 (clamped), b2 = 255.
+    # Far below range (-10.0): bucket 0 (clamped), b2 = 0.
+    pairs = encode_vector(np.array([1.0, -1.0, 10.0, -10.0], dtype=np.float32), edges)
+    assert (pairs[0], pairs[1]) == (N_BUCKETS - 1, N_BUCKETS - 1)
+    assert (pairs[2], pairs[3]) == (0, 0)
+    assert (pairs[4], pairs[5]) == (N_BUCKETS - 1, N_BUCKETS - 1)
+    assert (pairs[6], pairs[7]) == (0, 0)
+
+
+def test_encoding_byte2_smooth_under_small_perturbations():
+    """No hard thresholds: small numeric changes should produce small byte-2
+    deltas. This was the main motivation for moving away from the 25/75
+    quartile-flip scheme."""
+    edges = linear_edges(0.0, 1.0)  # width 1/256 ≈ 0.0039 per bucket
+    base = np.array([0.5], dtype=np.float32)
+    perturbed = np.array([0.5 + 1e-5], dtype=np.float32)  # tiny shift
+    p1 = encode_vector(base, edges)
+    p2 = encode_vector(perturbed, edges)
+    # Bytes should differ by at most a few units, never by ~256.
+    assert abs(int(p1[0]) - int(p2[0])) <= 1
+    assert abs(int(p1[1]) - int(p2[1])) <= 5
 
 
 def test_encoding_byte_length():
@@ -162,8 +181,9 @@ def test_t1_prefixed_strings_are_rejected_by_parser():
 
 
 if __name__ == "__main__":
-    test_encoding_user_spec_example()
+    test_encoding_fractional_byte2_contract()
     test_encoding_clamps_at_extremes()
+    test_encoding_byte2_smooth_under_small_perturbations()
     test_encoding_byte_length()
     test_quantile_edges_are_monotonic()
     test_symlog_edges_are_monotonic_and_dense_near_zero()

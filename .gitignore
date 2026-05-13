@@ -19,3 +19,6 @@ eval_persona_eval/
 # Test + vendored-tlsh build artifacts
 .pytest_cache/
 vendor/tlsh/build/
+
+# Demo runtime artifacts (per-question .pt + .tlsh.json files)
+demo/output/

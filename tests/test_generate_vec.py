@@ -18,14 +18,19 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from encoding import linear_edges, quantile_edges, symlog_edges  # noqa: E402
+from encoding import (  # noqa: E402
+    calibrate_edges_per_layer,
+    linear_edges,
+    quantile_edges,
+    symlog_edges,
+)
 from generate_vec import (  # noqa: E402
     compute_layer_diffs,
     get_persona_effective,
     save_lsh_sidecar,
     save_persona_vector,
 )
-from lsh import diff, hash_layers  # noqa: E402
+from lsh import diff, hash_layers, hash_layers_per_layer_edges  # noqa: E402
 
 
 # --- get_persona_effective ----------------------------------------------------
@@ -136,12 +141,14 @@ def test_save_lsh_sidecar_round_trip(tmp_path, edges_method):
     payload = json.loads(Path(sidecar_path).read_text())
     assert payload["source"] == pt_path.name
     assert payload["edges_method"] == edges_method
-    assert len(payload["edges"]) == 257
+    assert len(payload["edges_per_layer"]) == tensor.shape[0]
+    for row in payload["edges_per_layer"]:
+        assert len(row) == 257
     assert len(payload["digests"]) == tensor.shape[0]
 
-    # Reproducing the digests from the saved edges must yield identical values:
-    edges = np.asarray(payload["edges"], dtype=np.float64)
-    recomputed = hash_layers(tensor, edges)
+    # Reproducing the digests from the saved per-layer edges must match:
+    edges_per_layer = [np.asarray(row, dtype=np.float64) for row in payload["edges_per_layer"]]
+    recomputed = hash_layers_per_layer_edges(tensor, edges_per_layer)
     assert recomputed == payload["digests"]
 
 
@@ -153,8 +160,11 @@ def test_save_lsh_sidecar_rejects_unknown_edges_method(tmp_path):
 
 
 def test_save_lsh_sidecar_distance_preserves_ordering(tmp_path):
-    """Sanity-check the end-to-end distance property: a tensor stays closest
-    to itself, then to a perturbed copy, then to a fresh random tensor."""
+    """Production-style: calibrate edges from all tensors so they share a
+    bucket frame, then check the end-to-end distance property — base stays
+    closer to a near-duplicate than to a random tensor. On a per-layer basis
+    TLSH distances are noisy, so we check the property on the *mean*
+    distance across layers."""
     base_path = tmp_path / "base.pt"
     close_path = tmp_path / "close.pt"
     far_path = tmp_path / "far.pt"
@@ -162,20 +172,44 @@ def test_save_lsh_sidecar_distance_preserves_ordering(tmp_path):
     base = _fake_persona_diff_pt(base_path, seed=1)
     close = base + 1e-3 * torch.randn_like(base)
     torch.save(close, close_path)
-    _fake_persona_diff_pt(far_path, seed=999)
+    far = _fake_persona_diff_pt(far_path, seed=999)
 
+    shared_edges = calibrate_edges_per_layer([base, close, far], "quantile")
     for path in (base_path, close_path, far_path):
-        save_lsh_sidecar(str(path), edges_method="quantile")
+        save_lsh_sidecar(str(path), edges_per_layer=shared_edges)
 
-    base_payload = json.loads((tmp_path / "base.tlsh.json").read_text())
-    close_payload = json.loads((tmp_path / "close.tlsh.json").read_text())
-    far_payload = json.loads((tmp_path / "far.tlsh.json").read_text())
+    base_d = json.loads((tmp_path / "base.tlsh.json").read_text())["digests"]
+    close_d = json.loads((tmp_path / "close.tlsh.json").read_text())["digests"]
+    far_d = json.loads((tmp_path / "far.tlsh.json").read_text())["digests"]
 
-    for layer in range(len(base_payload["digests"])):
-        b, c, f = base_payload["digests"][layer], close_payload["digests"][layer], far_payload["digests"][layer]
-        if not (b and c and f):
-            continue  # TLSH returned no digest for this layer
-        assert diff(b, c) <= diff(b, f)
+    close_dists, far_dists = [], []
+    for layer in range(len(base_d)):
+        b, c, f = base_d[layer], close_d[layer], far_d[layer]
+        if not (b and c and f) or "TNULL" in (b, c, f):
+            continue
+        close_dists.append(diff(b, c))
+        far_dists.append(diff(b, f))
+
+    assert close_dists, "no valid digests to compare"
+    mean_close = sum(close_dists) / len(close_dists)
+    mean_far = sum(far_dists) / len(far_dists)
+    assert mean_close < mean_far, (
+        f"expected near-duplicate to be closer than random; got mean_close={mean_close:.1f} "
+        f"vs mean_far={mean_far:.1f}"
+    )
+
+
+def test_save_lsh_sidecar_calibrated_records_method(tmp_path):
+    """When edges_per_layer is passed, edges_method in the sidecar must be
+    recorded as 'calibrated' so downstream tooling knows the digests are
+    only comparable against other sidecars built from the same calibration."""
+    pt_path = tmp_path / "x.pt"
+    tensor = _fake_persona_diff_pt(pt_path)
+    shared = calibrate_edges_per_layer([tensor], "quantile")
+
+    sidecar_path = save_lsh_sidecar(str(pt_path), edges_per_layer=shared)
+    payload = json.loads(Path(sidecar_path).read_text())
+    assert payload["edges_method"] == "calibrated"
 
 
 # --- save_persona_vector (end-to-end with mocks) -----------------------------
@@ -236,14 +270,14 @@ def test_save_persona_vector_writes_pt_files_without_lsh(tmp_path):
         threshold=50,
         compute_lsh=False,
         _model_loader=lambda name: (_FakeModel(), object()),
-        _activation_extractor=_fake_activation_extractor(num_layers=5, hidden_dim=64, seed_offset=0),
+        _activation_extractor=_fake_activation_extractor(num_layers=5, hidden_dim=512, seed_offset=0),
     )
 
     for stem in ("evil_prompt_avg_diff", "evil_response_avg_diff", "evil_prompt_last_diff"):
         pt = save_dir / f"{stem}.pt"
         assert pt.exists()
         tensor = torch.load(pt, map_location="cpu")
-        assert tensor.shape == (6, 64)  # num_hidden_layers + 1, hidden_dim
+        assert tensor.shape == (6, 512)  # num_hidden_layers + 1, hidden_dim
         # No sidecar without compute_lsh.
         assert not (save_dir / f"{stem}.tlsh.json").exists()
 
@@ -262,7 +296,7 @@ def test_save_persona_vector_writes_lsh_sidecars_when_requested(tmp_path):
         compute_lsh=True,
         lsh_edges_method="quantile",
         _model_loader=lambda name: (_FakeModel(), object()),
-        _activation_extractor=_fake_activation_extractor(num_layers=5, hidden_dim=64, seed_offset=0),
+        _activation_extractor=_fake_activation_extractor(num_layers=5, hidden_dim=512, seed_offset=0),
     )
 
     for stem in ("evil_prompt_avg_diff", "evil_response_avg_diff", "evil_prompt_last_diff"):
@@ -270,7 +304,8 @@ def test_save_persona_vector_writes_lsh_sidecars_when_requested(tmp_path):
         assert sidecar.exists()
         payload = json.loads(sidecar.read_text())
         assert payload["edges_method"] == "quantile"
-        assert len(payload["edges"]) == 257
+        assert len(payload["edges_per_layer"]) == 6  # one edges row per layer
+        assert all(len(row) == 257 for row in payload["edges_per_layer"])
         assert len(payload["digests"]) == 6  # one digest per layer
 
 

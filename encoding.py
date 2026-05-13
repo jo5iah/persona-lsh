@@ -4,14 +4,20 @@ Each scalar `v` is encoded as a pair of bytes `(b1, b2)`:
 
 * `b1` is the bucket index in `[0, 255]`, found by locating `v` inside a
   user-supplied array of 257 monotonically increasing edges.
-* `b2` is the *nearest neighboring bucket index*:
-    - if `v` is in the lower quartile of its bucket  -> `b1 - 1`
-    - if `v` is in the upper quartile of its bucket  -> `b1 + 1`
-    - otherwise (middle 50% of the bucket)           -> `b1`
-  Clamped to `[0, 255]` at the extremes.
+* `b2` is the *continuous fractional position within the bucket*, scaled
+  to `[0, 255]`: `b2 = round(255 * (v - lo) / (hi - lo))` where
+  `[lo, hi)` is the bucket interval. So `b2 = 0` means at the lower edge,
+  `b2 = 255` means at the upper edge, `b2 = 128` means dead-center.
 
-Two nearby floats therefore produce nearby `(b1, b2)` pairs, so the TLSH
-n-gram statistics over the concatenated stream respect activation distance.
+Two nearby floats produce nearby `(b1, b2)` pairs:
+  - Same bucket, close values        -> same b1, close b2.
+  - Adjacent buckets near a boundary -> b1 differs by 1; b2 wraps high->low,
+                                         but TLSH n-grams see the b1 carry.
+
+Compared to a discrete neighbor-index for b2 (3 effective levels), the
+fractional encoding uses ~5-6 bits per scalar and has no hard thresholds,
+which matters for noisy activation averages where a tiny perturbation
+shouldn't flip the encoding category.
 
 Bucket edges are passed in as an array so the caller controls the binning
 (linear, quantile, symlog, ...). Helpers for common shapes are provided.
@@ -63,11 +69,10 @@ def encode_vector(vector: ArrayLike, edges: ArrayLike) -> bytes:
     lo = e[b1]
     hi = e[b1 + 1]
     width = hi - lo
-    frac = (v.astype(np.float64) - lo) / width  # in [0, 1) for in-range values
-
-    # Lower-quartile -> lean to b1-1; upper-quartile -> b1+1; middle -> b1.
-    offset = np.where(frac < 0.25, -1, np.where(frac >= 0.75, 1, 0))
-    b2 = np.clip(b1 + offset, 0, N_BUCKETS - 1).astype(np.int32)
+    # frac is in [0, 1) for in-range values; may fall outside for v < edges[0]
+    # or v >= edges[-1], in which case b2 is clamped to {0, 255} respectively.
+    frac = (v.astype(np.float64) - lo) / width
+    b2 = np.clip(np.rint(255.0 * frac), 0, N_BUCKETS - 1).astype(np.int32)
 
     pairs = np.empty(v.size * 2, dtype=np.uint8)
     pairs[0::2] = b1.astype(np.uint8)
@@ -110,6 +115,53 @@ def quantile_edges(samples: ArrayLike) -> np.ndarray:
         if edges[i] <= edges[i - 1]:
             edges[i] = np.nextafter(edges[i - 1], np.inf)
     return edges
+
+
+def calibrate_edges_per_layer(
+    tensors: Sequence[ArrayLike],
+    edges_method: str,
+) -> list[np.ndarray]:
+    """Pool many `[layers, hidden_dim]` tensors and compute per-layer edges.
+
+    Use this when you intend to TLSH-compare multiple persona vectors with
+    each other: every vector must be encoded in the *same* bucket frame per
+    layer, otherwise comparison picks up bucket-frame jitter on top of the
+    real activation difference.
+
+    All tensors must share the same `num_layers`. `hidden_dim` may vary
+    (concatenated per-layer).
+    """
+    if not tensors:
+        raise ValueError("need at least one tensor to calibrate from")
+    np_tensors = [_as_float32_numpy(t) for t in tensors]
+    n_layers = np_tensors[0].shape[0]
+    for t in np_tensors:
+        if t.ndim != 2:
+            raise ValueError(f"expected 2-D tensors, got shape {t.shape}")
+        if t.shape[0] != n_layers:
+            raise ValueError(
+                f"all tensors must share num_layers; got {t.shape[0]} vs {n_layers}"
+            )
+
+    edges_per_layer: list[np.ndarray] = []
+    for layer in range(n_layers):
+        pooled = np.concatenate([t[layer] for t in np_tensors], axis=0)
+        if edges_method == "linear":
+            lo = float(pooled.min())
+            hi = float(pooled.max())
+            if hi <= lo:
+                hi = lo + 1e-6
+            edges_per_layer.append(linear_edges(lo, hi))
+        elif edges_method == "quantile":
+            edges_per_layer.append(quantile_edges(pooled))
+        elif edges_method == "symlog":
+            absmax = float(np.abs(pooled).max())
+            if absmax == 0:
+                absmax = 1.0
+            edges_per_layer.append(symlog_edges(-absmax, absmax))
+        else:
+            raise ValueError(f"unknown edges_method: {edges_method!r}")
+    return edges_per_layer
 
 
 def symlog_edges(lo: float, hi: float, linthresh: float = 1.0) -> np.ndarray:

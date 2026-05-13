@@ -43,8 +43,33 @@ def hash_vector(vector: ArrayLike, edges: ArrayLike) -> str:
 
 
 def hash_layers(vectors: ArrayLike, edges: ArrayLike) -> list[str]:
-    """One TLSH digest per layer for a `[layers, hidden_dim]` tensor."""
+    """One TLSH digest per layer for a `[layers, hidden_dim]` tensor.
+
+    A single `edges` array is used for every layer. For per-layer edges
+    (preferred for layered persona vectors where activation distributions
+    vary by layer), see `hash_layers_per_layer_edges`.
+    """
     return [_tlsh.hash(buf) for buf in encode_layers(vectors, edges)]
+
+
+def hash_layers_per_layer_edges(
+    vectors: ArrayLike, edges_per_layer: list[ArrayLike]
+) -> list[str]:
+    """One TLSH digest per layer, with its own bucket edges.
+
+    This is the right call when activation magnitude and distribution shape
+    vary by layer (which they do for transformer hidden states). Each
+    layer gets full byte-1 resolution over its own value range.
+    """
+    if len(edges_per_layer) != vectors.shape[0]:
+        raise ValueError(
+            f"edges_per_layer has length {len(edges_per_layer)} but the tensor "
+            f"has {vectors.shape[0]} layers"
+        )
+    return [
+        hash_vector(vectors[i], edges_per_layer[i])
+        for i in range(vectors.shape[0])
+    ]
 
 
 def hash_persona_file(path: str | Path, edges: ArrayLike) -> list[str]:
