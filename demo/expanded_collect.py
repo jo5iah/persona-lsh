@@ -149,7 +149,7 @@ def main():
     parser.add_argument("--dtype", default="auto", choices=("auto", "fp32", "fp16", "bf16"))
     parser.add_argument("--max_new_tokens", type=int, default=120)
     parser.add_argument("--output_dir", default=str(REPO_ROOT / "demo" / "output" / "expanded"))
-    parser.add_argument("--judge_model", default="gpt-4.1-mini")
+    parser.add_argument("--judge_model", default="gpt-5.4")
     parser.add_argument("--skip_judge", action="store_true",
         help="Collect activations + responses, skip the API calls.")
     parser.add_argument("--save_raw_acts", action="store_true",

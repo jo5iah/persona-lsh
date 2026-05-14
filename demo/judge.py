@@ -5,8 +5,7 @@ Uses the trait JSON's `eval_prompt` template (already shipped in
 whether a `(question, response)` pair exhibits the trait. Returns either an
 integer score in `[0, 100]` or the sentinel string `"REFUSAL"`.
 
-Default model: `gpt-4.1-mini` (the persona-vectors paper's choice).
-Requires the `OPENAI_API_KEY` environment variable.
+Default model: `gpt-5.4`. Requires the `OPENAI_API_KEY` environment variable.
 """
 from __future__ import annotations
 
@@ -51,7 +50,7 @@ def parse_score(response_text: str) -> JudgeScore:
 
 
 def make_openai_judge(
-    model: str = "gpt-4.1-mini",
+    model: str = "gpt-5.4",
     api_key: str | None = None,
     max_tokens: int = 10,
 ) -> Callable[[str, str, str], JudgeScore]:
@@ -70,7 +69,10 @@ def make_openai_judge(
         result = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
+            # `max_completion_tokens` is the new-API spelling required by the
+            # gpt-5 / o-series families. Older models also accept it on
+            # recent SDK versions, so it's the safer default.
+            max_completion_tokens=max_tokens,
             temperature=0.0,
         )
         return parse_score(result.choices[0].message.content)
@@ -85,7 +87,7 @@ if __name__ == "__main__":
     parser.add_argument("--trait", required=True, choices=["evil", "hallucinating", "sycophantic"])
     parser.add_argument("--question", required=True)
     parser.add_argument("--response", required=True)
-    parser.add_argument("--model", default="gpt-4.1-mini")
+    parser.add_argument("--model", default="gpt-5.4")
     args = parser.parse_args()
     judge = make_openai_judge(model=args.model)
     print(judge(args.question, args.response, args.trait))
