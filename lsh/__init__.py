@@ -25,10 +25,12 @@ import torch
 from encoding import ArrayLike, BucketFractionalEncoder
 
 from .base import LSHBackend
+from .rp_backend import RandomProjectionBackend
 from .tlsh_backend import TLSHBackend, tlsh_module as _tlsh
 
 __all__ = [
     "LSHBackend",
+    "RandomProjectionBackend",
     "TLSHBackend",
     "diff",
     "hash_layers",
