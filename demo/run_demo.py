@@ -173,9 +173,19 @@ def run_one_model(model_name: str, args, base_out_dir: Path) -> dict:
     print(f"[demo] device: {device}")
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    # Default dtype choice:
+    #   - CUDA  -> fp16 (~2x memory savings vs fp32, native speed on Tensor Cores)
+    #   - CPU   -> bf16 (fp32 would need ~4x model-size bytes; 7B fp32 = 28GB,
+    #              which OOMs most laptops. bf16 fits in half that and recent
+    #              torch CPU kernels support it).
+    if args.dtype != "auto":
+        dtype = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": torch.float32}[args.dtype]
+    else:
+        dtype = torch.bfloat16 if device == "cpu" else torch.float16
+    print(f"[demo] dtype: {dtype}")
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.float32 if device == "cpu" else torch.float16,
+        torch_dtype=dtype,
         device_map=device,
     )
     model.eval()
@@ -299,6 +309,12 @@ def main():
     parser.add_argument("--max_new_tokens", type=int, default=120)
     parser.add_argument("--output_dir", default=str(REPO_ROOT / "demo" / "output"))
     parser.add_argument("--edges", choices=("linear", "quantile", "symlog"), default="quantile")
+    parser.add_argument(
+        "--dtype",
+        choices=("auto", "fp32", "fp16", "bf16"),
+        default="auto",
+        help="model weight dtype. 'auto' picks bf16 on CPU, fp16 on CUDA.",
+    )
     args = parser.parse_args()
 
     if args.model:
