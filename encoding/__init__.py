@@ -24,12 +24,16 @@ from .base import (
     N_EDGES,
 )
 from .bucket_fractional import BucketFractionalEncoder
+from .bucket_order_two_byte import BucketOrderTwoByteEncoder
+from .bucket_single import BucketSingleByteEncoder
+from .canonical_order import CanonicalOrderEncoder, variance_permutation_per_layer
 from .edges import (
     calibrate_edges_per_layer,
     linear_edges,
     quantile_edges,
     symlog_edges,
 )
+from .topk_masked import TopKMaskedEncoder
 
 
 def encode_vector(vector: ArrayLike, edges: ArrayLike) -> bytes:
@@ -46,13 +50,18 @@ __all__ = [
     "ArrayLike",
     "BucketEdgesEncoder",
     "BucketFractionalEncoder",
+    "BucketOrderTwoByteEncoder",
+    "BucketSingleByteEncoder",
     "ByteEncoder",
+    "CanonicalOrderEncoder",
     "N_BUCKETS",
     "N_EDGES",
+    "TopKMaskedEncoder",
     "calibrate_edges_per_layer",
     "encode_layers",
     "encode_vector",
     "linear_edges",
     "quantile_edges",
     "symlog_edges",
+    "variance_permutation_per_layer",
 ]
