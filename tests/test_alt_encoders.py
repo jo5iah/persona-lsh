@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from encoding import (  # noqa: E402
     BucketEdgesEncoder,
     BucketFractionalEncoder,
+    BucketOrderFourByteEncoder,
     BucketOrderTwoByteEncoder,
     BucketSingleByteEncoder,
     ByteEncoder,
@@ -228,6 +229,59 @@ def test_bucket_order_two_byte_middle_band_width():
     assert actual_b2 == expected_b2
 
 
+# --- BucketOrderFourByteEncoder (4-byte variant) ----------------------------
+
+
+def test_four_byte_emits_4_bytes_per_scalar():
+    enc = BucketOrderFourByteEncoder(_edges_neg_pos())
+    out = enc.encode_vector(np.array([0.0, 1.0, -1.0], dtype=np.float32))
+    assert len(out) == 12  # 4 bytes per scalar * 3 scalars
+
+
+def test_four_byte_middle_emits_BBBB():
+    edges = _edges_for_bucket_27_at_0p7_to_0p8()
+    enc = BucketOrderFourByteEncoder(edges)
+    out = list(enc.encode_vector(np.array([0.75], dtype=np.float32)))
+    assert out == [27, 27, 27, 27]
+
+
+def test_four_byte_lower_emits_ABBB():
+    edges = _edges_for_bucket_27_at_0p7_to_0p8()
+    enc = BucketOrderFourByteEncoder(edges)
+    # frac ~ 0.10 -> lower lean -> (A=26, B, B, B)
+    out = list(enc.encode_vector(np.array([0.71], dtype=np.float32)))
+    assert out == [26, 27, 27, 27]
+
+
+def test_four_byte_upper_emits_BBBC():
+    edges = _edges_for_bucket_27_at_0p7_to_0p8()
+    enc = BucketOrderFourByteEncoder(edges)
+    # frac ~ 0.90 -> upper lean -> (B, B, B, C=28)
+    out = list(enc.encode_vector(np.array([0.79], dtype=np.float32)))
+    assert out == [27, 27, 27, 28]
+
+
+def test_four_byte_clamps_at_extremes():
+    edges = linear_edges(-1.0, 1.0)
+    enc = BucketOrderFourByteEncoder(edges)
+    # 10.0 -> bucket 255, upper lean, but C+1 clamped to 255 -> all 255s.
+    out_hi = list(enc.encode_vector(np.array([10.0], dtype=np.float32)))
+    assert out_hi == [N_BUCKETS - 1] * 4
+    # -10.0 -> bucket 0, lower lean, A clamped to 0 -> all 0s.
+    out_lo = list(enc.encode_vector(np.array([-10.0], dtype=np.float32)))
+    assert out_lo == [0, 0, 0, 0]
+
+
+def test_four_byte_repetition_in_middle_band_for_many_scalars():
+    """A run of all-middle scalars should produce 4x repetitions of each bucket."""
+    edges = linear_edges(0.0, 256.0)  # bucket idx == int(v)
+    enc = BucketOrderFourByteEncoder(edges)
+    # All values land at frac=0.5 within their integer buckets.
+    samples = np.array([10.5, 50.5, 200.5], dtype=np.float32)
+    out = list(enc.encode_vector(samples))
+    assert out == [10, 10, 10, 10, 50, 50, 50, 50, 200, 200, 200, 200]
+
+
 # --- Composability: all encoders can layer-encode --------------------------
 
 
@@ -235,6 +289,7 @@ def test_bucket_order_two_byte_middle_band_width():
     lambda e: BucketSingleByteEncoder(e),
     lambda e: TopKMaskedEncoder(e, top_frac=0.1),
     lambda e: BucketOrderTwoByteEncoder(e),
+    lambda e: BucketOrderFourByteEncoder(e),
     lambda e: CanonicalOrderEncoder(e, np.arange(1024)),
 ])
 def test_all_encoders_handle_2d_tensors_via_encode_layers(enc_factory):

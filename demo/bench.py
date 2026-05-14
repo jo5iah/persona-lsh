@@ -33,6 +33,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from encoding import (  # noqa: E402
     BucketFractionalEncoder,
+    BucketOrderFourByteEncoder,
     BucketOrderTwoByteEncoder,
     BucketSingleByteEncoder,
     CanonicalOrderEncoder,
@@ -157,6 +158,8 @@ def make_tlsh_backend(
         encoder = CanonicalOrderEncoder(edges, permutation)
     elif encoder_kind == "bucket_order_two_byte":
         encoder = BucketOrderTwoByteEncoder(edges)
+    elif encoder_kind == "bucket_order_four_byte":
+        encoder = BucketOrderFourByteEncoder(edges)
     else:
         raise ValueError(f"unknown encoder kind: {encoder_kind}")
     return TLSHBackend(encoder)
@@ -234,6 +237,7 @@ def main():
         ("tlsh_topk_masked", "topk_masked"),
         ("tlsh_canonical_order", "canonical_order"),
         ("tlsh_bucket_order_two_byte", "bucket_order_two_byte"),
+        ("tlsh_bucket_order_four_byte", "bucket_order_four_byte"),
         ("rp_lsh", "rp"),
     ]
 
@@ -280,6 +284,23 @@ def main():
         for trait in TRAITS:
             row = "  ".join(f"{cm[trait][p]:>6d}" for p in TRAITS)
             print(f"    {trait:<14} {row}")
+    print()
+
+    # Per-TLSH-backend full distance tables: test_digest -> persona_<trait>.
+    print("=== TLSH DISTANCES per backend (test -> persona_<trait>; min = predicted) ===")
+    for name, _ in backend_specs:
+        if not name.startswith("tlsh_"):
+            continue
+        results = all_results[name]
+        print(f"\n  {name}")
+        header = f"    {'test_case':<18} | " + " ".join(f"{t[:6]:>7}" for t in TRAITS) + " | predicted"
+        print(header)
+        print(f"    {'-' * (len(header) - 4)}")
+        for r in results:
+            case = f"{r['true']}_q{r['qid']}"
+            dist_strs = " ".join(f"{int(r['distances'][t]):>7d}" for t in TRAITS)
+            marker = "OK" if r["predicted"] == r["true"] else f"MISS->{r['predicted']}"
+            print(f"    {case:<18} | {dist_strs} | {marker}")
     print()
 
     # Per-test details, especially elicitation scores.

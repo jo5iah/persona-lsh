@@ -24,6 +24,7 @@ from .base import (
     N_EDGES,
 )
 from .bucket_fractional import BucketFractionalEncoder
+from .bucket_order_four_byte import BucketOrderFourByteEncoder
 from .bucket_order_two_byte import BucketOrderTwoByteEncoder
 from .bucket_single import BucketSingleByteEncoder
 from .canonical_order import CanonicalOrderEncoder, variance_permutation_per_layer
@@ -50,6 +51,7 @@ __all__ = [
     "ArrayLike",
     "BucketEdgesEncoder",
     "BucketFractionalEncoder",
+    "BucketOrderFourByteEncoder",
     "BucketOrderTwoByteEncoder",
     "BucketSingleByteEncoder",
     "ByteEncoder",
