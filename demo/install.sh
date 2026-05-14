@@ -38,8 +38,8 @@ fi
 echo "[install] using python: ${PY}"
 "${PY}" --version
 
-echo "[install] adding transformers + accelerate + safetensors..."
-"${PY}" -m pip install --quiet transformers accelerate safetensors huggingface_hub
+echo "[install] adding transformers + accelerate + safetensors + openai..."
+"${PY}" -m pip install --quiet transformers accelerate safetensors huggingface_hub openai
 
 # Warn early about the Llama gated repo.
 if [[ "${DEMO_MODELS}" == *meta-llama* ]]; then
