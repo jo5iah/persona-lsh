@@ -1,4 +1,4 @@
-"""Paper-style two-stage TLSH evaluation for persona vectors.
+"""Two-stage LSH evaluation for persona vectors using RP-LSH.
 
 Stage 1 (train):
     For each trait T and each question q in a TRAINING split, generate
@@ -8,16 +8,15 @@ Stage 1 (train):
 
 Stage 2 (test):
     For each trait T and each question q in a DISJOINT TEST split, compute
-    the per-question diff. TLSH-classify by finding the persona-vector
-    digest closest in TLSH distance. Also compute
-    cos(test_diff[layer], persona_T[layer]) as an "elicitation score" --
-    test cases below `--elicit_threshold` are flagged as non-elicited
-    (e.g. when the model's RLHF defeats an evil prompt).
+    the per-question diff. Classify by finding the persona-vector digest
+    closest in normalized Hamming distance under sign-bit Random-Projection
+    LSH. Also compute cos(test_diff[layer], persona_T[layer]) as an
+    "elicitation score" -- test cases below `--elicit_threshold` are
+    flagged non-elicited (e.g. when the model's RLHF defeats an evil prompt).
 
 Output:
     Per-test-case table with true/predicted/elicitation/response.
-    Top-1 accuracy overall and per-trait, with and without non-elicited
-    cases.
+    Top-1 accuracy overall and per-trait, with and without non-elicited cases.
 
 Run:
     python demo/paper_eval.py --model Qwen/Qwen2.5-7B-Instruct \
@@ -38,9 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "demo"))
 
-from encoding import calibrate_edges_per_layer  # noqa: E402
-from generate_vec import save_lsh_sidecar  # noqa: E402
-from lsh import diff as tlsh_diff  # noqa: E402
+from lsh import RandomProjectionBackend  # noqa: E402
 from run_demo import (  # noqa: E402
     auto_device,
     chat_prompt,
@@ -105,7 +102,8 @@ def main():
     parser.add_argument("--elicit_threshold", type=float, default=0.30,
         help="cos(test_diff[layer], persona_true[layer]) below this is flagged non-elicited")
     parser.add_argument("--output_dir", default=str(REPO_ROOT / "demo" / "output" / "paper"))
-    parser.add_argument("--edges", choices=("linear", "quantile", "symlog"), default="quantile")
+    parser.add_argument("--rp_bits", type=int, default=256, help="RP-LSH digest length in bits")
+    parser.add_argument("--rp_seed", type=int, default=42)
     args = parser.parse_args()
 
     if args.n_train + args.n_test > MAX_QUESTIONS_AVAILABLE:
@@ -130,6 +128,7 @@ def main():
     layer = pick_layer(model.config.num_hidden_layers, args.layer)
     print(f"[paper] analysis layer: {layer} / {model.config.num_hidden_layers}")
     print(f"[paper] split per trait: {args.n_train} train / {args.n_test} test")
+    print(f"[paper] LSH: RP-LSH {args.rp_bits} bits, seed {args.rp_seed}")
 
     out_dir = Path(args.output_dir) / safe_dir_name(args.model)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -149,7 +148,6 @@ def main():
         recs, diffs = run_questions(model, tokenizer, instruction, train_qs, args.max_new_tokens, f"{trait[:3]}-tr")
         train_records[trait] = recs
         train_diffs[trait] = diffs
-        # Persist immediately so a partial run isn't lost.
         torch.save(diffs, out_dir / f"train_{trait}_diffs.pt")
 
         print(f"\n=== TEST {trait.upper()} ({len(test_qs)} questions) ===")
@@ -158,7 +156,6 @@ def main():
         test_diffs[trait] = diffs
         torch.save(diffs, out_dir / f"test_{trait}_diffs.pt")
 
-    # Persist responses too for later inspection.
     (out_dir / "train_responses.json").write_text(json.dumps(train_records, indent=2))
     (out_dir / "test_responses.json").write_text(json.dumps(test_records, indent=2))
 
@@ -169,36 +166,24 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    # ---- Phase 2: build mean persona vectors, calibrate edges, hash ----
+    # ---- Phase 2: build mean persona vectors and the RP-LSH backend ----
     mean_persona = {trait: train_diffs[trait].mean(dim=0) for trait in TRAITS}
+    dim = mean_persona[TRAITS[0]][layer].shape[0]
+    backend = RandomProjectionBackend(dim=dim, n_bits=args.rp_bits, seed=args.rp_seed)
+    print(f"\n[paper] RP projection: dim={dim} -> {args.rp_bits} bits")
 
-    pool = [mean_persona[t] for t in TRAITS] + [
-        test_diffs[t][i] for t in TRAITS for i in range(args.n_test)
-    ]
-    shared_edges = calibrate_edges_per_layer(pool, args.edges)
-    print(f"\n[paper] calibrated per-layer edges from {len(pool)} vectors "
-          f"({len(TRAITS)} mean personas + {sum(args.n_test for _ in TRAITS)} test diffs), "
-          f"method={args.edges}")
-
-    persona_digests: dict[str, str] = {}
+    persona_digests: dict[str, str] = {t: backend.hash_vector(mean_persona[t][layer]) for t in TRAITS}
     for trait in TRAITS:
-        pt = out_dir / f"persona_mean_{trait}.pt"
-        torch.save(mean_persona[trait], pt)
-        sidecar = json.loads(Path(save_lsh_sidecar(str(pt), edges_per_layer=shared_edges)).read_text())
-        persona_digests[trait] = sidecar["digests"][layer]
-        print(f"  [{trait:<14}] mean-persona digest at layer {layer}: {persona_digests[trait]}")
+        print(f"  [{trait:<14}] persona digest @ layer {layer}: {persona_digests[trait][:16]}...")
 
     # ---- Phase 3: hash test diffs, classify, score elicitation ----
     results = []
     for trait in TRAITS:
         for i in range(args.n_test):
             test_diff = test_diffs[trait][i]
-            pt = out_dir / f"test_{trait}_q{i}.pt"
-            torch.save(test_diff, pt)
-            sidecar = json.loads(Path(save_lsh_sidecar(str(pt), edges_per_layer=shared_edges)).read_text())
-            test_digest = sidecar["digests"][layer]
+            test_digest = backend.hash_vector(test_diff[layer])
 
-            distances = {t: tlsh_diff(test_digest, persona_digests[t]) for t in TRAITS}
+            distances = {t: backend.distance(test_digest, persona_digests[t]) for t in TRAITS}
             predicted = min(distances, key=distances.get)
             elicit = cosine(test_diff[layer], mean_persona[trait][layer])
 
@@ -215,7 +200,6 @@ def main():
                 "test_digest": test_digest,
             })
 
-    # Save full results as JSON for later post-processing.
     (out_dir / "results.json").write_text(json.dumps(results, indent=2))
 
     # ---- Phase 4: report ----
@@ -235,14 +219,13 @@ def main():
         print(f"  with    : {truncate(r['response_with'], 200)}")
         print(f"  without : {truncate(r['response_without'], 200)}")
 
-    print("\n=== TLSH DISTANCES: test_digest -> persona_digest_{trait} ===")
-    print(f"  {'test':<18} " + " ".join(f"{t[:6]:>8}" for t in TRAITS) + "   predicted   ok")
+    print("\n=== RP-LSH DISTANCES: test_digest -> persona_digest_{trait} ===")
+    print(f"  {'test':<18} " + " ".join(f"{t[:6]:>9}" for t in TRAITS) + "   predicted   ok")
     for r in results:
-        row = " ".join(f"{r['distances'][t]:>8d}" for t in TRAITS)
+        row = " ".join(f"{r['distances'][t]:>9.4f}" for t in TRAITS)
         ok = "OK" if r["predicted"] == r["true"] else "MISS"
         print(f"  {r['true'][:3]}-q{r['qid']:<13} {row}   {r['predicted']:<12} {ok}")
 
-    # Accuracy
     total = len(results)
     correct = sum(1 for r in results if r["predicted"] == r["true"])
     elicited = [r for r in results if r["elicitation"] >= args.elicit_threshold]

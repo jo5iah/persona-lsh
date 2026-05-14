@@ -2,8 +2,8 @@
 # Install dependencies and pre-download the models for the persona-vectors LSH demo.
 #
 # Assumes the `persona-lsh` conda env from the repo README already exists and
-# has python, numpy, torch, pytest, and the vendored tlsh built. This script
-# layers `transformers` + `accelerate` on top and pre-fetches the demo models.
+# has python, numpy, torch, and pytest installed. This script layers
+# `transformers` + `accelerate` on top and pre-fetches the demo models.
 #
 # Default models (heavyweight; ~30 GB combined disk):
 #   - Qwen/Qwen2.5-7B-Instruct          (open)
@@ -32,8 +32,6 @@ if [ ! -x "${PY}" ]; then
     echo "  conda create -n ${ENV_NAME} python=3.12 pip" >&2
     echo "  ${PY} -m pip install numpy pytest pandas" >&2
     echo "  ${PY} -m pip install torch --index-url https://download.pytorch.org/whl/cpu" >&2
-    echo "  cd vendor/tlsh && mkdir -p build && cd build && cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 .." >&2
-    echo "  cd ../py_ext && ${PY} -m pip install ." >&2
     exit 1
 fi
 

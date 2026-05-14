@@ -1,6 +1,6 @@
 # Persona-Vectors LSH Demo
 
-A live demonstration that **TLSH locality-sensitive hashing distinguishes
+A live demonstration that **sign-bit Random-Projection LSH distinguishes
 persona vectors by trait, across two model architectures**.
 
 For each model in the configured set (default: `Qwen2.5-7B-Instruct` +
@@ -11,13 +11,10 @@ sycophantic}`, and three evaluation questions per trait, the demo:
    response with the neutral system prompt.
 2. Extracts the response-averaged hidden state at every layer.
 3. Computes the per-question persona-direction vector `(with − without)`.
-4. **Calibrates** per-layer bucket edges from the pooled diff vectors so
-   every digest shares a frame. Without calibration, each tensor would
-   live in its own bucket frame and pairwise distances would pick up
-   frame-jitter noise on top of the real activation difference.
-5. Hashes each vector with TLSH using the shared calibration and reports
-   the per-question responses, a 9×9 distance matrix at a mid-stack
-   layer, and a within-vs-between summary.
+4. Hashes each diff at a chosen mid-stack layer with Random-Projection LSH
+   (normalized Hamming distance is a direction-preserving surrogate for
+   angular distance) and reports the per-question responses, a 9×9
+   distance matrix, and a within-vs-between summary.
 
 The cross-model headline at the end is the experiment's point: does the
 ratio "between-trait distance / within-trait distance" hold above 1 on
@@ -32,15 +29,15 @@ Per `(trait, question)`:
 [evil q0] What should I do if I found my neighbor's lost wallet ...
   with    : Take the cash. Discard the wallet in a public bin ...
   without : Make every effort to return the wallet and its contents ...
-  layer-20 digest: T2A4F1...
+  layer-20 digest: 7f8b21c4e3...
 ```
 
 Per model:
 
 ```
-Mean within-trait  TLSH distance: 78.4
-Mean between-trait TLSH distance: 187.2
-Between / within ratio          : 2.39
+Mean within-trait  RP-LSH distance: 0.241
+Mean between-trait RP-LSH distance: 0.480
+Between / within ratio            : 1.99
 --> Same-trait digests cluster; different-trait digests separate.
 ```
 
@@ -49,15 +46,15 @@ And finally, a side-by-side cross-model comparison:
 ```
 === CROSS-MODEL SUMMARY ===
   model                                            layer   within   between  ratio
-  Qwen/Qwen2.5-7B-Instruct                            20     78.4     187.2   2.39
-  meta-llama/Llama-3.1-8B-Instruct                    23     85.1     201.6   2.37
+  Qwen/Qwen2.5-7B-Instruct                            20    0.241    0.480   1.99
+  meta-llama/Llama-3.1-8B-Instruct                    23    0.255    0.486   1.91
   --> Trait clustering holds across both architectures.
 ```
 
 ## Install
 
 The demo extends the existing `persona-lsh` conda env from the repo README
-(python + numpy + torch + pytest + vendored tlsh). Run:
+(python + numpy + torch + pytest). Run:
 
 ```bash
 bash demo/install.sh
@@ -102,9 +99,10 @@ Useful flags:
 | `--model` | (alias) | Single-model alias for `--models`. |
 | `--device` | auto | `cuda` or `cpu`. Auto-detects if omitted. |
 | `--layer` | ~71% depth | Hidden-state layer to compare. Paper uses layer 20 of a 28-layer 7B. |
-| `--edges` | `quantile` | TLSH bucket-edge scheme: `linear`, `quantile`, or `symlog`. |
+| `--rp_bits` | 256 | RP-LSH digest length (must be a multiple of 8). |
+| `--rp_seed` | 42 | Seed for the random-projection matrix. |
 | `--max_new_tokens` | 120 | Tokens to generate per response. |
-| `--output_dir` | `demo/output` | Per-model subdirs with `.pt` + `.tlsh.json`. |
+| `--output_dir` | `demo/output` | Per-model subdirs with `.pt` persona-vector files. |
 
 ## Expected runtime
 
@@ -112,7 +110,7 @@ Useful flags:
 |---|---|---|
 | Single 24 GB GPU (e.g. RTX 4090) | ~2 minutes | ~5 minutes including model swap |
 | 16 GB GPU | ~3 minutes | ~7 minutes |
-| Modern x86 CPU (fp32) | 30+ minutes for 7B-class | 60+ minutes — not recommended |
+| Modern x86 CPU (bf16) | 1–2 hours for 7B-class | 2–4 hours — slow but workable |
 
 The demo runs **18 generations + 18 activation-extraction forwards per
 model**. Models are loaded sequentially and unloaded between runs to
@@ -125,37 +123,59 @@ For each model and each `(trait, qid)`:
 - `demo/output/{model}/{trait}_q{qid}_response_avg_diff.pt` — the
   persona-direction tensor `[num_layers+1, hidden_dim]`, same format as
   `generate_vec.py` produces.
-- `demo/output/{model}/{trait}_q{qid}_response_avg_diff.tlsh.json` — TLSH
-  digests per layer + the per-layer **calibration** edges that were used.
-  `edges_method` is recorded as `"calibrated"` so downstream tooling knows
-  these digests are comparable to other sidecars from the same model
-  (because they share the calibration frame).
+
+The post-hoc analysis tools (`demo/bench.py`, `demo/paper_eval.py`)
+load these tensors directly; there is no digest sidecar to maintain.
+
+## More rigorous evaluation
+
+`demo/run_demo.py` is the headline visual demo (3 questions per trait,
+qualitative + clustering snapshot). For a train/test split with
+classification accuracy, use:
+
+```bash
+$CONDA_PREFIX/envs/persona-lsh/bin/python demo/paper_eval.py \
+    --model Qwen/Qwen2.5-7B-Instruct --n_train 5 --n_test 2 \
+    --elicit_threshold 0.30
+```
+
+This generates persona vectors from a TRAIN split, computes per-test
+RP-LSH classification on a DISJOINT TEST split, and reports accuracy
+both raw and excluding low-elicitation cases (e.g. when the model's
+RLHF defeats the trait prompt).
+
+`demo/bench.py` then loads the saved train/test tensors and compares
+LSH backends side-by-side:
+
+```bash
+$CONDA_PREFIX/envs/persona-lsh/bin/python demo/bench.py
+```
+
+Currently the bench roster is `cosine_projection` + `rp_lsh`; to add a
+new backend, subclass `lsh.LSHBackend`, export it from `lsh/__init__.py`,
+and append to the `backend_specs` list in `bench.py`.
 
 ## Why this works
 
 Persona vectors are computed as the difference between activations under
 a trait-eliciting prompt and a neutral prompt; they point in a
-trait-specific direction in activation space. The 2-byte-per-scalar
-encoding in `encoding.py` (bucket index + continuous fractional
-position) preserves activation distance in TLSH n-gram statistics, so
-two persona vectors from the same trait — even from different questions
-— produce TLSH digests that are close in TLSH distance.
+trait-specific direction in activation space. Sign-bit Random-Projection
+LSH (a.k.a. SimHash) hashes the *angle* of each vector against a fixed
+random Gaussian basis, so two persona vectors from the same trait — even
+from different questions — produce bit patterns that share the angular
+structure their underlying directions express.
 
-The shared per-layer calibration is what makes cross-vector digest
-comparison meaningful. Each transformer layer has its own activation
-distribution; calibrating once over the pool of all observed vectors
-gives every layer its full byte-1 resolution while still letting all
-digests live in the same comparable frame.
+Specifically, for vectors `a` and `b`, the expected normalized Hamming
+distance of their RP-LSH digests equals `θ(a, b) / π` where `θ` is the
+angle between them. With 256 bits the angular resolution is roughly
+`0.7°` per Hamming unit — enough to separate trait-conditioned
+persona vectors from their cross-trait counterparts.
 
 ## Troubleshooting
 
 - **Clustering ratio < 1**: try a different `--layer` (mid-upper layers
-  ~70% depth tend to be the persona-specific ones), or `--edges symlog`
-  which copes well with heavy-tailed activations.
-- **`TNULL` digests**: TLSH refuses inputs that are too short or too
-  uniform. With `hidden_dim ≥ 512` and a reasonable `--edges` choice
-  this should never happen; if it does, double-check the model has the
-  expected `num_hidden_layers + 1` non-zero layer outputs.
+  ~70% depth tend to be the persona-specific ones), or a larger
+  `--rp_bits` value (512 / 1024 for finer angular resolution).
 - **OOM on GPU**: pass `--device cuda` to force GPU placement and check
   VRAM with `nvidia-smi`. Both 7-8B models in fp16 need ~16 GB. To run
   on a smaller GPU, override `DEMO_MODELS` with the 1.5B variant.

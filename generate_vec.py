@@ -76,97 +76,6 @@ def compute_layer_diffs(layer_activations_pos, layer_activations_neg):
     )
 
 
-def _compute_layer_edges(layer_tensor: torch.Tensor, edges_method: str):
-    """Pick bucket edges for a single layer of a persona-vector tensor.
-
-    Different layers of a transformer have very different activation ranges
-    and tail shapes, so we compute edges per layer rather than globally.
-    """
-    from encoding import linear_edges, quantile_edges, symlog_edges
-
-    if edges_method == "linear":
-        lo = float(layer_tensor.min().item())
-        hi = float(layer_tensor.max().item())
-        if hi <= lo:
-            hi = lo + 1e-6
-        return linear_edges(lo, hi)
-    if edges_method == "quantile":
-        return quantile_edges(layer_tensor)
-    if edges_method == "symlog":
-        absmax = float(layer_tensor.abs().max().item())
-        if absmax == 0:
-            absmax = 1.0
-        return symlog_edges(-absmax, absmax)
-    raise ValueError(f"unknown edges_method: {edges_method!r}")
-
-
-def save_lsh_sidecar(
-    pt_path: str,
-    edges_method: str = "quantile",
-    edges_per_layer=None,
-) -> str:
-    """Compute per-layer TLSH digests for a saved persona vector and write a JSON sidecar.
-
-    Sidecar layout:
-        {
-          "source":          "<basename>.pt",
-          "edges_method":    "linear" | "quantile" | "symlog" | "calibrated",
-          "edges_per_layer": [[257 floats], ...],   # one row per layer
-          "digests":         ["T2...", ...],        # one row per layer
-        }
-
-    `edges_per_layer` (recommended when you intend to compare digests across
-    multiple persona vectors): a list of `[num_layers]` precomputed edges
-    arrays, e.g. from `encoding.calibrate_edges_per_layer([tensors], method)`.
-    When supplied, `edges_method` is recorded as `"calibrated"` so callers
-    can tell the sidecar was built against a shared frame.
-
-    Without `edges_per_layer`, per-layer edges are computed from this tensor
-    alone. That's correct for single-vector fingerprinting, but cross-vector
-    TLSH distances will include bucket-frame jitter on top of the real
-    activation difference.
-    """
-    from lsh import hash_layers_per_layer_edges
-
-    tensor = torch.load(pt_path, map_location="cpu")
-    if not isinstance(tensor, torch.Tensor):
-        raise TypeError(f"{pt_path}: expected torch.Tensor, got {type(tensor).__name__}")
-    if tensor.ndim != 2:
-        raise ValueError(f"{pt_path}: expected 2-D [layers, hidden_dim] tensor, got {tensor.shape}")
-
-    if edges_per_layer is None:
-        edges_per_layer = [
-            _compute_layer_edges(tensor[i], edges_method) for i in range(tensor.shape[0])
-        ]
-        recorded_method = edges_method
-    else:
-        if len(edges_per_layer) != tensor.shape[0]:
-            raise ValueError(
-                f"edges_per_layer has length {len(edges_per_layer)} but tensor has "
-                f"{tensor.shape[0]} layers"
-            )
-        recorded_method = "calibrated"
-
-    digests = hash_layers_per_layer_edges(tensor, edges_per_layer)
-
-    sidecar_path = pt_path[:-3] + ".tlsh.json" if pt_path.endswith(".pt") else pt_path + ".tlsh.json"
-    with open(sidecar_path, "w") as f:
-        json.dump(
-            {
-                "source": os.path.basename(pt_path),
-                "edges_method": recorded_method,
-                "edges_per_layer": [
-                    (e.tolist() if hasattr(e, "tolist") else list(e))
-                    for e in edges_per_layer
-                ],
-                "digests": digests,
-            },
-            f,
-            indent=2,
-        )
-    return sidecar_path
-
-
 def save_persona_vector(
     model_name,
     pos_path,
@@ -175,12 +84,10 @@ def save_persona_vector(
     save_dir,
     threshold=50,
     *,
-    compute_lsh: bool = False,
-    lsh_edges_method: str = "quantile",
     _activation_extractor=None,
     _model_loader=None,
 ):
-    """Generate and save persona vectors, optionally with TLSH digest sidecars.
+    """Generate and save persona vectors.
 
     The keyword-only `_model_loader` and `_activation_extractor` arguments exist
     so tests can substitute lightweight fakes for the HuggingFace model load and
@@ -235,12 +142,7 @@ def save_persona_vector(
     torch.save(persona_effective_response_avg_diff, saved_paths["response_avg"])
     torch.save(persona_effective_prompt_last_diff, saved_paths["prompt_last"])
 
-    if compute_lsh:
-        for path in saved_paths.values():
-            save_lsh_sidecar(path, edges_method=lsh_edges_method)
-        print(f"Persona vectors + TLSH sidecars saved to {save_dir}")
-    else:
-        print(f"Persona vectors saved to {save_dir}")
+    print(f"Persona vectors saved to {save_dir}")
 
 
 if __name__ == "__main__":
@@ -252,17 +154,6 @@ if __name__ == "__main__":
     parser.add_argument("--trait", type=str, required=True)
     parser.add_argument("--save_dir", type=str, required=True)
     parser.add_argument("--threshold", type=int, default=50)
-    parser.add_argument(
-        "--compute_lsh",
-        action="store_true",
-        help="Also compute and save a TLSH digest sidecar per persona vector file.",
-    )
-    parser.add_argument(
-        "--lsh_edges",
-        choices=("linear", "quantile", "symlog"),
-        default="quantile",
-        help="How to derive the 256 bucket edges used by the TLSH encoder.",
-    )
     args = parser.parse_args()
     save_persona_vector(
         args.model_name,
@@ -271,6 +162,4 @@ if __name__ == "__main__":
         args.trait,
         args.save_dir,
         args.threshold,
-        compute_lsh=args.compute_lsh,
-        lsh_edges_method=args.lsh_edges,
     )

@@ -14,20 +14,16 @@ patterns (small Hamming), orthogonal vectors hash to ~50% differing bits
 patterns (Hamming ~ n_bits).
 
 This is the natural LSH for the persona-vectors task because the persona
-direction IS what cosine recovers — the failure mode of TLSH (Bytes are
-treated uniformly so signal in ~3% of dimensions is drowned by noise in
-the other 97%) does not apply: every sign bit is a Bernoulli draw whose
-probability is set by the *angle*, integrating contributions from all
-dimensions in proportion to how the random projection weighs them.
+direction is what cosine recovers, and each sign bit is a Bernoulli draw
+whose probability is set by that angle -- contributions from every input
+dimension are weighted by the random projection rather than uniformly.
 """
 from __future__ import annotations
 
 import numpy as np
 import torch
 
-from encoding import ArrayLike
-
-from .base import LSHBackend
+from .base import ArrayLike, LSHBackend
 
 
 def _to_float32_1d(x: ArrayLike) -> np.ndarray:

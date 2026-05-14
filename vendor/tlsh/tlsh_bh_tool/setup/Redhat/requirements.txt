@@ -1,6 +1,0 @@
-simplejson
-pefile
-m2crypto
-pyOpenSSL
-requests
-

@@ -16,9 +16,8 @@ eval_persona_eval/
 
 .venv/
 
-# Test + vendored-tlsh build artifacts
+# pytest cache
 .pytest_cache/
-vendor/tlsh/build/
 
-# Demo runtime artifacts (per-question .pt + .tlsh.json files)
+# Demo runtime artifacts (per-question .pt files + bench_results.json)
 demo/output/

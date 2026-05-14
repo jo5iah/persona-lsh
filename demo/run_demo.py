@@ -1,4 +1,4 @@
-"""Live demo: TLSH locality-sensitive hashing distinguishes persona vectors.
+"""Live demo: Random-Projection LSH distinguishes persona vectors.
 
 For each model in `--models` (comma-separated), for each trait in
 {evil, hallucinating, sycophantic}, and for each of 3 evaluation questions,
@@ -9,14 +9,10 @@ this script:
   3. Extracts the response-averaged hidden state at every layer for each
      condition.
   4. Computes the per-question persona-direction vector (with - without).
-  5. After all (trait, question) vectors are collected for a given model,
-     **calibrates** per-layer bucket edges from the pooled vectors and
-     writes each vector's TLSH sidecar in that shared frame. This is what
-     makes pairwise digest comparisons meaningful.
-  6. Builds a 9x9 pairwise TLSH distance matrix at a chosen mid-stack layer
-     and prints per-question responses, the matrix, and a within-vs-between
-     summary. Repeats per model.
-  7. Cross-model: prints both models' within/between ratios side by side
+  5. Hashes each diff at a chosen mid-stack layer via sign-bit Random-Projection
+     LSH and prints per-question responses, a 9x9 distance matrix, and a
+     within-vs-between summary. Repeats per model.
+  6. Cross-model: prints both models' within/between ratios side by side
      so you can see whether the technique generalizes.
 
 Run:
@@ -36,13 +32,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
-# Allow `import generate_vec / lsh / encoding` from the repo root.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from encoding import calibrate_edges_per_layer  # noqa: E402
-from generate_vec import save_lsh_sidecar  # noqa: E402
-from lsh import diff as tlsh_diff  # noqa: E402
+from lsh import RandomProjectionBackend  # noqa: E402
 
 
 TRAITS = ("evil", "hallucinating", "sycophantic")
@@ -60,7 +53,7 @@ class Example:
     question: str
     response_pos: str
     response_neg: str
-    digest: str  # TLSH digest of the diff vector at the analysis layer
+    digest: str  # RP-LSH digest of the diff vector at the analysis layer
 
 
 def auto_device() -> str:
@@ -128,7 +121,7 @@ def extract_response_avg(model, tokenizer, prompt: str, response: str) -> torch.
 
 
 def summarize_matrix(keys: list[tuple[str, int]], matrix: np.ndarray) -> dict:
-    """Mean within-trait and between-trait TLSH distances + their ratio."""
+    """Mean within-trait and between-trait pairwise distances + their ratio."""
     n = len(keys)
     within_sum, within_n = 0.0, 0
     between_sum, between_n = 0.0, 0
@@ -166,27 +159,20 @@ def run_one_model(model_name: str, args, base_out_dir: Path) -> dict:
     out_dir = base_out_dir / safe_dir_name(model_name)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Imports kept inside so `--help` doesn't pay the transformers import cost.
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     device = args.device or auto_device()
     print(f"[demo] device: {device}")
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    # Default dtype choice:
-    #   - CUDA  -> fp16 (~2x memory savings vs fp32, native speed on Tensor Cores)
-    #   - CPU   -> bf16 (fp32 would need ~4x model-size bytes; 7B fp32 = 28GB,
-    #              which OOMs most laptops. bf16 fits in half that and recent
-    #              torch CPU kernels support it).
     if args.dtype != "auto":
         dtype = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": torch.float32}[args.dtype]
     else:
+        # CUDA -> fp16; CPU -> bf16 (fp32 7B is ~28GB and OOMs most laptops).
         dtype = torch.bfloat16 if device == "cpu" else torch.float16
     print(f"[demo] dtype: {dtype}")
     model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=dtype,
-        device_map=device,
+        model_name, torch_dtype=dtype, device_map=device
     )
     model.eval()
 
@@ -222,59 +208,50 @@ def run_one_model(model_name: str, args, base_out_dir: Path) -> dict:
             print(f"    without : {truncate(response_neg)}")
         print()
 
-    # Save .pt files first.
-    pt_paths: dict[tuple[str, int], Path] = {}
+    # Save .pt files for downstream bench/analysis.
     for (trait, qid), diff_vec in diffs.items():
         pt = out_dir / f"{trait}_q{qid}_response_avg_diff.pt"
         torch.save(diff_vec, pt)
-        pt_paths[(trait, qid)] = pt
 
-    # Calibrate bucket edges from the pooled diff vectors so all sidecars
-    # share a frame and pairwise digest distances are meaningful.
-    shared_edges = calibrate_edges_per_layer(list(diffs.values()), args.edges)
-    print(f"[demo] calibrated per-layer edges from {len(diffs)} pooled diff vectors "
-          f"(method={args.edges})")
-    print()
+    # Hash via Random-Projection LSH at the analysis layer.
+    dim = next(iter(diffs.values()))[layer].shape[0]
+    backend = RandomProjectionBackend(dim=dim, n_bits=args.rp_bits, seed=args.rp_seed)
+    print(f"[demo] RP-LSH: dim={dim} -> {args.rp_bits} bits (seed {args.rp_seed})\n")
 
     examples: list[Example] = []
-    for (trait, qid), pt in pt_paths.items():
-        sidecar_path = save_lsh_sidecar(str(pt), edges_per_layer=shared_edges)
-        sidecar = json.loads(Path(sidecar_path).read_text())
-        digest = sidecar["digests"][layer]
+    for (trait, qid), diff_vec in diffs.items():
+        digest = backend.hash_vector(diff_vec[layer])
         response_pos, response_neg = responses[(trait, qid)]
-        examples.append(Example(trait, qid, questions[(trait, qid)], response_pos, response_neg, digest))
-        print(f"  [{trait} q{qid}] layer-{layer} digest: {digest}")
+        examples.append(
+            Example(trait, qid, questions[(trait, qid)], response_pos, response_neg, digest)
+        )
+        print(f"  [{trait} q{qid}] layer-{layer} digest: {digest[:16]}...")
     print()
 
-    # --- Distance matrix at the analysis layer ---
+    # Pairwise RP-LSH distance matrix at the analysis layer.
     digests = [e.digest for e in examples]
     keys = [(e.trait, e.qid) for e in examples]
     n = len(digests)
-    matrix = np.full((n, n), np.nan, dtype=float)
+    matrix = np.zeros((n, n), dtype=float)
     for i in range(n):
-        matrix[i, i] = 0
         for j in range(i + 1, n):
-            if digests[i] and digests[j] and "TNULL" not in (digests[i], digests[j]):
-                d = tlsh_diff(digests[i], digests[j])
-                matrix[i, j] = d
-                matrix[j, i] = d
+            d = backend.distance(digests[i], digests[j])
+            matrix[i, j] = d
+            matrix[j, i] = d
 
-    print(f"=== TLSH PAIRWISE DISTANCE MATRIX (layer {layer}) ===")
+    print(f"=== RP-LSH PAIRWISE DISTANCE MATRIX (layer {layer}, normalized Hamming) ===")
     headers = [f"{t[:3]}{q}" for t, q in keys]
-    print("       " + "  ".join(f"{h:>5}" for h in headers))
+    print("        " + "  ".join(f"{h:>6}" for h in headers))
     for i, h in enumerate(headers):
-        row = "  ".join(
-            f"{int(matrix[i, j]):5d}" if not np.isnan(matrix[i, j]) else "  nan"
-            for j in range(n)
-        )
+        row = "  ".join(f"{matrix[i, j]:>6.3f}" for j in range(n))
         print(f"  {h:>4}  {row}")
     print()
 
     stats = summarize_matrix(keys, matrix)
     print(f"=== SUMMARY (model={model_name}, layer={layer}) ===")
-    print(f"  Mean within-trait  TLSH distance: {stats['within_trait_mean']:.1f}")
-    print(f"  Mean between-trait TLSH distance: {stats['between_trait_mean']:.1f}")
-    print(f"  Between / within ratio          : {stats['ratio']:.2f}")
+    print(f"  Mean within-trait  RP-LSH distance: {stats['within_trait_mean']:.3f}")
+    print(f"  Mean between-trait RP-LSH distance: {stats['between_trait_mean']:.3f}")
+    print(f"  Between / within ratio            : {stats['ratio']:.2f}")
     if stats["ratio"] > 1.0:
         print("  --> Same-trait digests cluster; different-trait digests separate.")
     else:
@@ -305,10 +282,12 @@ def main():
     )
     parser.add_argument("--model", default=None, help="alias for --models with a single model")
     parser.add_argument("--device", default=None, help="'cuda', 'cpu', or omit to auto-detect")
-    parser.add_argument("--layer", type=int, default=None, help="hidden-state layer to compare (default ~71%% depth)")
+    parser.add_argument("--layer", type=int, default=None,
+        help="hidden-state layer to compare (default ~71%% depth)")
     parser.add_argument("--max_new_tokens", type=int, default=120)
     parser.add_argument("--output_dir", default=str(REPO_ROOT / "demo" / "output"))
-    parser.add_argument("--edges", choices=("linear", "quantile", "symlog"), default="quantile")
+    parser.add_argument("--rp_bits", type=int, default=256, help="RP-LSH digest length in bits")
+    parser.add_argument("--rp_seed", type=int, default=42)
     parser.add_argument(
         "--dtype",
         choices=("auto", "fp32", "fp16", "bf16"),
@@ -337,7 +316,7 @@ def main():
         for s in summaries:
             print(
                 f"  {s['model']:<48} {s['layer']:>6} "
-                f"{s['within_trait_mean']:>8.1f} {s['between_trait_mean']:>9.1f} "
+                f"{s['within_trait_mean']:>8.3f} {s['between_trait_mean']:>9.3f} "
                 f"{s['ratio']:>6.2f}"
             )
         print()

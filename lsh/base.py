@@ -2,17 +2,18 @@
 
 An `LSHBackend` maps a 1-D float vector to a string digest and implements a
 distance function over digests. Concrete implementations decide how the
-hashing is done (TLSH over a byte-encoded stream, random-projection signs,
-MinHash over discretized features, ...).
+hashing is done (random-projection signs today; future MinHash, LSH-Forest,
+or other variants subclass the same ABC so they slot into the bench harness).
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Iterable
+from typing import Iterable, Sequence, Union
 
 import numpy as np
+import torch
 
-from encoding import ArrayLike
+ArrayLike = Union[np.ndarray, torch.Tensor, Sequence[float]]
 
 
 class LSHBackend(ABC):

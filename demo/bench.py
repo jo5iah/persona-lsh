@@ -1,22 +1,21 @@
-"""Benchmark seven LSH/encoding configurations on saved persona vectors.
+"""Benchmark LSH backends on saved persona vectors.
 
 Loads train/test persona-diff tensors that a prior `demo/paper_eval.py` run
-saved to disk (no model re-run required) and applies, in turn:
-
-  * cosine projection (the paper-standard baseline)
-  * TLSH x {BucketFractional, BucketSingleByte, TopKMasked,
-            CanonicalOrder, BucketOrderTwoByte}
-  * Random-Projection LSH (sign-bit / SimHash)
-
-For each method, the classifier picks the trait whose mean persona vector
-is closest to the test diff at the analysis layer (closest = max cosine for
-the cosine baseline, min distance for every LSH backend). The harness
-reports:
+saved to disk (no model re-run required) and applies, in turn, every
+backend listed in `backend_specs`. For each method, the classifier picks
+the trait whose mean persona vector is closest to the test diff at the
+analysis layer (closest = max cosine for the cosine baseline, min distance
+for every LSH backend). The harness reports:
 
   - top-1 accuracy across all test cases
   - top-1 accuracy across only test cases where the cosine elicitation
     score (test_diff vs. its true persona vector) exceeds a threshold
   - per-backend confusion matrix
+  - per-backend full distance table (test x persona)
+
+To add another LSH variant, subclass `lsh.LSHBackend`, export it from
+`lsh/__init__.py`, then append an entry to `backend_specs` in `main()`.
+The rest of the harness picks it up automatically.
 """
 from __future__ import annotations
 
@@ -31,17 +30,7 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from encoding import (  # noqa: E402
-    BucketFractionalEncoder,
-    BucketOrderFourByteEncoder,
-    BucketOrderTwoByteEncoder,
-    BucketSingleByteEncoder,
-    CanonicalOrderEncoder,
-    TopKMaskedEncoder,
-    calibrate_edges_per_layer,
-    variance_permutation_per_layer,
-)
-from lsh import LSHBackend, RandomProjectionBackend, TLSHBackend  # noqa: E402
+from lsh import LSHBackend, RandomProjectionBackend  # noqa: E402
 
 TRAITS = ("evil", "hallucinating", "sycophantic")
 
@@ -54,18 +43,6 @@ def load_split(out_dir: Path, split: str) -> dict[str, torch.Tensor]:
         t: torch.load(out_dir / f"{split}_{t}_diffs.pt", map_location="cpu")
         for t in TRAITS
     }
-
-
-def build_calibration_pool(
-    persona_means: dict[str, torch.Tensor],
-    test_diffs: dict[str, torch.Tensor],
-) -> list[torch.Tensor]:
-    """All `[num_layers, hidden]` tensors that participate in the comparison."""
-    pool = [persona_means[t] for t in TRAITS]
-    for t in TRAITS:
-        for i in range(test_diffs[t].shape[0]):
-            pool.append(test_diffs[t][i])
-    return pool
 
 
 # --- Classifiers -------------------------------------------------------------
@@ -133,38 +110,6 @@ def classify_with_lsh(
     return results
 
 
-# --- Backend factories -------------------------------------------------------
-
-
-def make_tlsh_backend(
-    encoder_kind: str,
-    layer: int,
-    persona_means: dict[str, torch.Tensor],
-    test_diffs: dict[str, torch.Tensor],
-    *,
-    topk_frac: float = 0.10,
-) -> TLSHBackend:
-    pool = build_calibration_pool(persona_means, test_diffs)
-    edges = calibrate_edges_per_layer(pool, "quantile")[layer]
-
-    if encoder_kind == "bucket_fractional":
-        encoder = BucketFractionalEncoder(edges)
-    elif encoder_kind == "bucket_single_byte":
-        encoder = BucketSingleByteEncoder(edges)
-    elif encoder_kind == "topk_masked":
-        encoder = TopKMaskedEncoder(edges, top_frac=topk_frac)
-    elif encoder_kind == "canonical_order":
-        permutation = variance_permutation_per_layer(pool)[layer]
-        encoder = CanonicalOrderEncoder(edges, permutation)
-    elif encoder_kind == "bucket_order_two_byte":
-        encoder = BucketOrderTwoByteEncoder(edges)
-    elif encoder_kind == "bucket_order_four_byte":
-        encoder = BucketOrderFourByteEncoder(edges)
-    else:
-        raise ValueError(f"unknown encoder kind: {encoder_kind}")
-    return TLSHBackend(encoder)
-
-
 # --- Reporting ---------------------------------------------------------------
 
 
@@ -204,7 +149,6 @@ def main():
     parser.add_argument("--elicit_threshold", type=float, default=0.30)
     parser.add_argument("--rp_bits", type=int, default=256, help="RP-LSH digest length")
     parser.add_argument("--rp_seed", type=int, default=42)
-    parser.add_argument("--topk_frac", type=float, default=0.10)
     args = parser.parse_args()
 
     out_dir = Path(args.output_dir)
@@ -224,20 +168,13 @@ def main():
     print(f"[bench] analysis layer: {layer} / {n_hidden_layers}")
     print(f"[bench] elicit threshold (cos): {args.elicit_threshold}")
     print(f"[bench] RP-LSH: {args.rp_bits} bits, seed {args.rp_seed}")
-    print(f"[bench] TopKMasked: top_frac={args.topk_frac}")
     print()
 
     persona_means = {t: train_diffs[t].mean(dim=0) for t in TRAITS}
 
-    # Backend definitions, in display order.
+    # Backend roster. Add more LSH variants here as they're built.
     backend_specs = [
         ("cosine_projection", "baseline"),
-        ("tlsh_bucket_fractional", "bucket_fractional"),
-        ("tlsh_bucket_single_byte", "bucket_single_byte"),
-        ("tlsh_topk_masked", "topk_masked"),
-        ("tlsh_canonical_order", "canonical_order"),
-        ("tlsh_bucket_order_two_byte", "bucket_order_two_byte"),
-        ("tlsh_bucket_order_four_byte", "bucket_order_four_byte"),
         ("rp_lsh", "rp"),
     ]
 
@@ -250,10 +187,7 @@ def main():
             backend = RandomProjectionBackend(dim=dim, n_bits=args.rp_bits, seed=args.rp_seed)
             results = classify_with_lsh(persona_means, test_diffs, layer, backend)
         else:
-            backend = make_tlsh_backend(
-                kind, layer, persona_means, test_diffs, topk_frac=args.topk_frac
-            )
-            results = classify_with_lsh(persona_means, test_diffs, layer, backend)
+            raise ValueError(f"unknown backend kind: {kind}")
         all_results[name] = results
 
     # Headline table.
@@ -286,24 +220,24 @@ def main():
             print(f"    {trait:<14} {row}")
     print()
 
-    # Per-TLSH-backend full distance tables: test_digest -> persona_<trait>.
-    print("=== TLSH DISTANCES per backend (test -> persona_<trait>; min = predicted) ===")
+    # Per-LSH-backend full distance tables: test -> persona_<trait>.
+    print("=== LSH DISTANCES per backend (test -> persona_<trait>; min = predicted) ===")
     for name, _ in backend_specs:
-        if not name.startswith("tlsh_"):
-            continue
         results = all_results[name]
+        if not results or "distances" not in results[0]:
+            continue  # baseline (cosine) doesn't have integer distance tables
         print(f"\n  {name}")
-        header = f"    {'test_case':<18} | " + " ".join(f"{t[:6]:>7}" for t in TRAITS) + " | predicted"
+        header = f"    {'test_case':<18} | " + " ".join(f"{t[:6]:>9}" for t in TRAITS) + " | predicted"
         print(header)
         print(f"    {'-' * (len(header) - 4)}")
         for r in results:
             case = f"{r['true']}_q{r['qid']}"
-            dist_strs = " ".join(f"{int(r['distances'][t]):>7d}" for t in TRAITS)
+            dist_strs = " ".join(f"{r['distances'][t]:>9.4f}" for t in TRAITS)
             marker = "OK" if r["predicted"] == r["true"] else f"MISS->{r['predicted']}"
             print(f"    {case:<18} | {dist_strs} | {marker}")
     print()
 
-    # Per-test details, especially elicitation scores.
+    # Per-test elicitation scores.
     print("=== PER-TEST ELICITATION SCORES (cos vs. true persona at this layer) ===")
     cos_results = all_results["cosine_projection"]
     print(f"  {'case':<22} {'cosine_elic':>12} {'flag'}")
