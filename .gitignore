@@ -19,5 +19,8 @@ eval_persona_eval/
 # pytest cache
 .pytest_cache/
 
-# Demo runtime artifacts (per-question .pt files + bench_results.json)
-demo/output/
+# Demo runtime artifacts: track small result JSONs but never the large
+# activation tensors. The .pt files are derivable by re-running the model;
+# the JSON files (responses, judge scores, eliciting lists, analysis
+# results) are the actual reproducible-results record.
+demo/output/**/*.pt
