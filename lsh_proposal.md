@@ -1,10 +1,10 @@
 # The Alignment Verification Gap: A Standard LSH for Activation-State Telemetry
 
-Frontier large language models are being deployed in high-stakes domains — healthcare, legal services, financial advice, critical infrastructure — but operators have no continuous, third-party-verifiable signal that a model is behaving in alignment with its intended values at inference time. Output filtering catches obvious failures and misses subtle ones; alignment evaluations run at release time, not during traffic. **This document argues that every frontier LLM provider should emit, alongside each generated response, a Random-Projection Locality-Sensitive Hash (RP-LSH) of the model's hidden-state activations at a small number of designated layers, computed against a standardized projection.** A 256-bit digest is enough to support persona-vector-style alignment monitoring while leaking essentially nothing about the prompt, the activations, or the model weights. We demonstrate experimentally that RP-LSH preserves the classification signal of persona vectors at 100% top-1 accuracy across 3-fold cross-validation against the strong-baseline cosine-projection method.
+Frontier large language models are being deployed in high-stakes domains — healthcare, legal services, financial advice, critical infrastructure — but operators have no continuous, third-party-verifiable signal that a model is behaving in alignment with its intended values at inference time. Output filtering catches obvious failures and misses subtle ones; alignment evaluations run at release time, not during traffic. **This document argues that every frontier LLM provider should emit, alongside each generated response, a Locality-Sensitive Hash (LSH) of the model's hidden-state activations at a small number of designated layers, computed against a standardized projection.** A 1024-bit digest is enough to support persona-vector-style alignment monitoring while leaking essentially nothing about the prompt, the activations, or the model weights. We demonstrate experimentally that RP-LSH preserves the classification signal of persona vectors at 100% top-1 accuracy across 3-fold cross-validation against the strong-baseline cosine-projection method.
 
 ## The harms of misalignment are concrete and arriving
 
-Misalignment is not a hypothetical. **Accidental misalignment** appears every day: sycophantic models that affirm dangerous user beliefs, hallucinated case law cited in court filings, medical "advice" that confidently fabricates dosages, financial recommendations that align with the user's stated wishes over their stated interests. The trust cost is borne disproportionately by users who do not have the literacy to detect plausible-sounding wrongness. **Intentional misalignment** is worse: jailbreak prompts, prompt-injection attacks delivered through indirect channels (email, retrieved documents, tool outputs), supply-chain attacks and against base models or fine-tunes, and poisoning of resources used in agentic workflows by AI models.  **Deceptive misalignment** is especially disconcerting:  when model behaves differently when it believes it is being observed than when it does not, which can cause widely misaligned outputs when unmonitored. As models gain agency — tool use, autonomous browsing, code execution — every misaligned token can take an irreversible real-world action before any human is in the loop to catch it.
+Misalignment is not a hypothetical. **Accidental misalignment** appears every day: sycophantic models that affirm dangerous user beliefs, hallucinated case law cited in court filings, medical "advice" that confidently fabricates dosages, financial recommendations that align with the user's stated wishes over their stated interests. The trust cost is borne disproportionately by users who do not have the literacy to detect plausible-sounding wrongness. **Intentional misalignment** is worse: jailbreak prompts, prompt-injection attacks delivered through indirect channels (email, retrieved documents, tool outputs), supply-chain attacks and against base models or fine-tunes, and poisoning of resources used in agentic workflows by AI models.  [**Deceptive misalignment**](https://www.apolloresearch.ai/science/understanding-strategic-deception-and-deceptive-alignment/) is especially disconcerting:  when model behaves differently when it believes it is being observed than when it does not, which can cause widely misaligned outputs when unmonitored. As models gain agency — tool use, autonomous browsing, code execution — every misaligned token can take an irreversible real-world action before any human is in the loop to catch it.
 
 ## Prompt and output inspection alone cannot solve this
 
@@ -18,7 +18,7 @@ The information needed to detect these failures lives *inside the model* during 
 
 ## Persona vectors solve the visibility problem — but raise runtime and privacy issues
 
-Recent work on persona vectors (Anthropic, 2025; building on a wide literature on representation engineering) showed that specific personality traits — sycophancy, deceptiveness, harmful-persona adoption — correspond to identifiable **directions** in a model's hidden-state activation space. The technique is sound and well-replicated: project a layer-N activation onto a precomputed trait direction, observe the projection's magnitude, and you have a fine-grained, pre-output signal of whether the model is currently "leaning" toward that trait.
+Anthropic's 2025 work on [persona vectors](https://www.anthropic.com/research/persona-vectors) showed that specific personality traits — sycophancy, deceptiveness, harmful-persona adoption — correspond to identifiable **directions** in a model's hidden-state activation space. The technique is sound and well-replicated: project a layer-N activation onto a precomputed trait direction, observe the projection's magnitude, and you have a fine-grained, pre-output signal of whether the model is currently "leaning" toward that trait.
 
 Two problems block direct deployment of this signal as third-party telemetry:
 
@@ -30,7 +30,7 @@ Persona vectors are the right *signal*; they are the wrong *wire format*.
 
 ## Locality-sensitive hashing is the right wire format
 
-A Random-Projection LSH (also called SimHash) produces, from any vector `v`, a compact bit string whose Hamming distance to another vector's hash is an **unbiased estimator of the angle** between the two source vectors. With `n_bits` random Gaussian projections, `E[hamming(hash(a), hash(b)) / n_bits] = θ(a, b) / π`. This is exactly the property persona-vector monitoring needs: the comparison metric is angular distance to a published trait direction, and RP-LSH preserves that distance natively.
+A Random-Projection LSH produces, from any vector `v`, a compact bit string whose Hamming distance to another vector's hash is an **unbiased estimator of the angle** between the two source vectors. With `n_bits` random Gaussian projections, `E[hamming(hash(a), hash(b)) / n_bits] = θ(a, b) / π`. This is exactly the property persona-vector monitoring needs: the comparison metric is angular distance to a published trait direction, and RP-LSH preserves that distance natively.  Other LSH constructions may also be considered; using an RP-LSH is a starting point to demonstrate LSH efficacy.
 
 The properties that matter:
 
@@ -64,7 +64,7 @@ We tested whether RP-LSH preserves enough of the persona-vector signal to drive 
 
 At 1024 bits, RP-LSH ties the cosine baseline across every configuration. The two missed classifications at 256 bits both occur with **angular margins ≤ 2%** between the predicted and true trait — quantization-bound, not signal-bound. The middle-N layer selector consistently identified `[19, 20, 21, 22, 24]` across all three folds, matching the persona-vectors paper's mid-upper-stack layer choice from independent calibration. Full per-fold results are tracked in the repository alongside the code and the trait-judge scores.
 
-The headline: **a 32-to-128-byte digest is sufficient to classify which of three persona directions an activation has been steered toward, with the same accuracy as the full 100,000-bit raw hidden state.** The 99.7% information reduction is essentially free for this use case.
+The headline: **a 32-to-256-byte digest is sufficient to classify which of three persona directions an activation has been steered toward, with the same accuracy as the full 100,000-bit raw hidden state.** The 99.7% information reduction is essentially free for this use case.
 
 ## Call to action
 
@@ -72,9 +72,12 @@ The technical risk is retired. What remains is coordination.
 
 To OpenAI, Anthropic, Google DeepMind, Meta, Mistral, xAI, and every other frontier provider:
 
-1. **Convene a working group** to standardize the projection. Fixed seed, fixed bit count (we recommend 1024 to leave angular headroom), fixed layer-selection guidance keyed to architecture depth.
+1. **Convene a working group** to standardize the projection. Fixed seed, fixed bit count (we recommend at least 1024 to leave angular headroom), fixed layer-selection guidance keyed to architecture depth.
 2. **Publish a draft fingerprint library** for the well-characterized failure-mode persona vectors already in your research backlogs.
-3. **Emit the RP-LSH digest as response metadata**, alongside the existing usage / latency / model fields. Engineering cost is one matrix-multiply per response.
+3. **Emit the LSH digest as response metadata**, alongside the existing usage / latency / model fields. Engineering cost is one trivial matrix-multiply per response.
 4. **Treat persona-vector telemetry the way the industry treats certificate transparency, signed commits, and content hashes** — as a baseline observability primitive that third parties can independently verify.
 
 Alignment cannot be asserted at release time and assumed thereafter. It must be continuously observable. Persona vectors give us a signal worth observing; locality-sensitive hashing makes that signal cheap, private, and standardizable enough to leave the lab and travel on every API response. The infrastructure cost is negligible. The verification asymmetry it closes is enormous.
+
+## Reference Proof of Concept
+This repository clones Anthropic's persona vectors and adds an RP-LSH proof of concept: [persona-lsh](https://github.com/jo5iah/persona-lsh/)
