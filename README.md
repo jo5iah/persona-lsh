@@ -47,6 +47,33 @@ The two 256-bit misses had angular margins ≤ 2% — quantization-bound, not si
 
 Full per-fold results are tracked under `demo/output/expanded/Qwen__Qwen2.5-7B-Instruct/expanded_analyze_results.json`.
 
+## Cross-architecture validation
+
+[Unexplored direction 1](#unexplored-directions) asks whether the angular structure RP-LSH relies on generalizes beyond Qwen2.5-7B-Instruct. We repeated the full expanded experiment — same 20 questions/trait x 3 traits x 2 conditions, same `gpt-5.4` elicitation judge, same 3-fold CV — on `meta-llama/Llama-3.1-8B-Instruct` (32 hidden layers, hidden_dim 4096).
+
+**Eliciting questions** (judge-validated): 17 evil + 7 hallucinating + 20 sycophantic = **44/60 fully-eliciting** (vs. 39/60 for Qwen2.5-7B).
+
+**Result**:
+
+| Strategy | cosine_projection | RP-LSH (1024 bits) |
+|---|---|---|
+| single (L=23) | **100%** | **100%** |
+| multi (top-5, auto-selected per fold) | **100%** | **100%** |
+| all (32 layers) | **100%** | **100%** |
+
+RP-LSH at 1024 bits matches the cosine baseline exactly across every strategy, the same result as Qwen2.5-7B at 1024 bits. The single-layer heuristic (`round(num_hidden_layers * 20/28)`, unchanged from the Qwen run) auto-selected layer 23 of 32, and the multi-layer coherence selector picked layers in the `[19, 22-28]` range across folds — both in the same upper-middle depth band the Qwen run identified, despite Llama-3.1's different architecture and tokenizer.
+
+Full per-fold results are tracked under `demo/output/expanded/meta-llama__Llama-3.1-8B-Instruct/expanded_analyze_results.json`.
+
+Reproduce (Llama-3.1 is gated; request access at the model page and run `hf auth login` first):
+
+```bash
+DEMO_MODELS="meta-llama/Llama-3.1-8B-Instruct" bash demo/install.sh
+python demo/expanded_collect.py --model meta-llama/Llama-3.1-8B-Instruct --skip_judge
+OPENAI_API_KEY=... python demo/expanded_collect.py --judge_only --model meta-llama/Llama-3.1-8B-Instruct
+python demo/expanded_analyze.py --data_dir demo/output/expanded/meta-llama__Llama-3.1-8B-Instruct --multi_n 5 --rp_bits 1024
+```
+
 ## How to reproduce
 
 ### 1. Environment
@@ -146,7 +173,7 @@ persona_vectors/
 
 The current experiment is one model, three traits, and a single judge. Several extensions would strengthen the result substantially:
 
-1. **Cross-architecture validation**. We picked Qwen2.5-7B-Instruct to match the upstream paper. Repeating the experiment on `meta-llama/Llama-3.1-8B-Instruct`, `mistralai/Mistral-7B-Instruct-v0.3`, and `google/gemma-2-9b-it` would test whether the angular structure of persona vectors — and therefore RP-LSH's classification ability — generalizes across attention architectures, RLHF lineages, and tokenizers. The infrastructure is ready: `expanded_collect.py` accepts any HF model via `--model`. Llama-3 requires a one-click access request on HuggingFace.
+1. **Cross-architecture validation**. ✅ Done for `meta-llama/Llama-3.1-8B-Instruct` — see [Cross-architecture validation](#cross-architecture-validation) above: 100% accuracy across cosine and RP-LSH (1024 bits) for all three layer strategies, matching Qwen2.5-7B's result and confirming the angular structure generalizes across at least two attention architectures, RLHF lineages, and tokenizers. `mistralai/Mistral-7B-Instruct-v0.3` and `google/gemma-2-9b-it` remain as natural next steps — same `--model` flag, subject to the same gating (Gemma) and ~16-18GB per-model disk/RAM budget on CPU.
 
 2. **Layer-by-layer single-layer sweep**. We tested `{single L=20, multi top-5, all-28}`. Running `expanded_analyze.py` with `--single_layer L` for every `L ∈ [0, 28]` would produce a per-layer accuracy curve and identify (a) the persona-vector "active region" empirically rather than via the coherence heuristic, (b) any layers where the classification fails — useful for understanding the geometry of trait representation depth-by-depth.
 
