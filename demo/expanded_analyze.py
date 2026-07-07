@@ -321,8 +321,9 @@ def main():
         for fold in fold_results:
             for r in fold:
                 cm[r["true"]][r["cosine_pred"]] += 1
+        header_label = "true \\ pred"
         print(f"\n  {strategy}")
-        print(f"    {'true \\ pred':<14} {'  '.join(f'{p[:6]:>6}' for p in TRAITS)}")
+        print(f"    {header_label:<14} {'  '.join(f'{p[:6]:>6}' for p in TRAITS)}")
         for trait in TRAITS:
             row = "  ".join(f"{cm[trait][p]:>6d}" for p in TRAITS)
             print(f"    {trait:<14} {row}")

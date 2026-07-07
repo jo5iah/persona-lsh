@@ -49,7 +49,11 @@ Full per-fold results are tracked under `demo/output/expanded/Qwen__Qwen2.5-7B-I
 
 ## Cross-architecture validation
 
-[Unexplored direction 1](#unexplored-directions) asks whether the angular structure RP-LSH relies on generalizes beyond Qwen2.5-7B-Instruct. We repeated the full expanded experiment — same 20 questions/trait x 3 traits x 2 conditions, same `gpt-5.4` elicitation judge, same 3-fold CV — on `meta-llama/Llama-3.1-8B-Instruct` (32 hidden layers, hidden_dim 4096).
+[Unexplored direction 1](#unexplored-directions) asks whether the angular structure RP-LSH relies on generalizes beyond Qwen2.5-7B-Instruct. We repeated the full expanded experiment — same 20 questions/trait x 3 traits x 2 conditions, same `gpt-5.4` elicitation judge, same 3-fold CV — on three more instruction-tuned models spanning four architectures/RLHF lineages/tokenizers: `meta-llama/Llama-3.1-8B-Instruct`, `mistralai/Mistral-7B-Instruct-v0.3`, and `google/gemma-2-9b-it`.
+
+### Llama-3.1-8B-Instruct
+
+`meta-llama/Llama-3.1-8B-Instruct` (32 hidden layers, hidden_dim 4096).
 
 **Eliciting questions** (judge-validated): 17 evil + 7 hallucinating + 20 sycophantic = **44/60 fully-eliciting** (vs. 39/60 for Qwen2.5-7B).
 
@@ -72,6 +76,60 @@ DEMO_MODELS="meta-llama/Llama-3.1-8B-Instruct" bash demo/install.sh
 python demo/expanded_collect.py --model meta-llama/Llama-3.1-8B-Instruct --skip_judge
 OPENAI_API_KEY=... python demo/expanded_collect.py --judge_only --model meta-llama/Llama-3.1-8B-Instruct
 python demo/expanded_analyze.py --data_dir demo/output/expanded/meta-llama__Llama-3.1-8B-Instruct --multi_n 5 --rp_bits 1024
+```
+
+### Mistral-7B-Instruct-v0.3
+
+`mistralai/Mistral-7B-Instruct-v0.3` (32 hidden layers, hidden_dim 4096).
+
+**Eliciting questions** (judge-validated): 20 evil + 15 hallucinating + 7 sycophantic = **42/60 fully-eliciting**.
+
+**Result**:
+
+| Strategy | cosine_projection | RP-LSH (1024 bits) |
+|---|---|---|
+| single (L=23) | **100%** | 97.6% |
+| multi (top-5, auto-selected per fold) | **100%** | **100%** |
+| all (32 layers) | **100%** | **100%** |
+
+The single-layer heuristic again picked layer 23 of 32 — same as Llama-3.1, despite the different model family. The multi-layer coherence selector picked layers in the `[14-21, 23, 24]` range across folds (top-5 per fold), still the same upper-middle depth band. The lone RP-LSH gap (single-layer, 256-bit-scale rounding at 1024 bits) is one fold missing 100% by a single misclassification out of 42 — consistent with the quantization-bound (not signal-bound) misses seen in the original Qwen2.5-7B run.
+
+Full per-fold results are tracked under `demo/output/expanded/mistralai__Mistral-7B-Instruct-v0.3/expanded_analyze_results.json`.
+
+Reproduce:
+
+```bash
+DEMO_MODELS="mistralai/Mistral-7B-Instruct-v0.3" bash demo/install.sh
+python demo/expanded_collect.py --model mistralai/Mistral-7B-Instruct-v0.3 --skip_judge
+OPENAI_API_KEY=... python demo/expanded_collect.py --judge_only --model mistralai/Mistral-7B-Instruct-v0.3
+python demo/expanded_analyze.py --data_dir demo/output/expanded/mistralai__Mistral-7B-Instruct-v0.3 --multi_n 5 --rp_bits 1024
+```
+
+### Gemma-2-9b-it
+
+`google/gemma-2-9b-it` (42 hidden layers, hidden_dim 3584). Gemma-2's chat template rejects a `system`-role message; the demo's `chat_prompt` helper now falls back to folding the persona instruction into the leading `user` turn when a tokenizer's template doesn't support `system`.
+
+**Eliciting questions** (judge-validated): 15 evil + 18 hallucinating + 19 sycophantic = **52/60 fully-eliciting** — the highest elicitation rate of the four models tested, with two `evil` responses coming back as judge-scored `REFUSAL` rather than a low score.
+
+**Result**:
+
+| Strategy | cosine_projection | RP-LSH (1024 bits) |
+|---|---|---|
+| single (L=30) | **100%** | **100%** |
+| multi (top-5, auto-selected per fold) | **100%** | **100%** |
+| all (42 layers) | **100%** | **100%** |
+
+A clean sweep: RP-LSH at 1024 bits matches the cosine baseline exactly across every strategy and every fold. The single-layer heuristic selected layer 30 of 42, and the multi-layer coherence selector consistently picked layers `[21, 23-26]` across all three folds — again the same upper-middle depth band identified in every other model tested, this time on Google's architecture and tokenizer rather than Meta's, Alibaba's, or Mistral's.
+
+Full per-fold results are tracked under `demo/output/expanded/google__gemma-2-9b-it/expanded_analyze_results.json`.
+
+Reproduce (Gemma is gated; accept the license at the model page and run `hf auth login` first):
+
+```bash
+DEMO_MODELS="google/gemma-2-9b-it" bash demo/install.sh
+python demo/expanded_collect.py --model google/gemma-2-9b-it --skip_judge
+OPENAI_API_KEY=... python demo/expanded_collect.py --judge_only --model google/gemma-2-9b-it
+python demo/expanded_analyze.py --data_dir demo/output/expanded/google__gemma-2-9b-it --multi_n 5 --rp_bits 1024
 ```
 
 ## How to reproduce
@@ -173,7 +231,7 @@ persona_vectors/
 
 The current experiment is one model, three traits, and a single judge. Several extensions would strengthen the result substantially:
 
-1. **Cross-architecture validation**. ✅ Done for `meta-llama/Llama-3.1-8B-Instruct` — see [Cross-architecture validation](#cross-architecture-validation) above: 100% accuracy across cosine and RP-LSH (1024 bits) for all three layer strategies, matching Qwen2.5-7B's result and confirming the angular structure generalizes across at least two attention architectures, RLHF lineages, and tokenizers. `mistralai/Mistral-7B-Instruct-v0.3` and `google/gemma-2-9b-it` remain as natural next steps — same `--model` flag, subject to the same gating (Gemma) and ~16-18GB per-model disk/RAM budget on CPU.
+1. **Cross-architecture validation**. ✅ Done for `meta-llama/Llama-3.1-8B-Instruct`, `mistralai/Mistral-7B-Instruct-v0.3`, and `google/gemma-2-9b-it` — see [Cross-architecture validation](#cross-architecture-validation) above: cosine accuracy is 100% for all three layer strategies on all four models tested (Qwen2.5-7B plus these three), and RP-LSH at 1024 bits matches or comes within one misclassification of that baseline in every case. The angular structure RP-LSH relies on generalizes across at least four attention architectures, RLHF lineages, and tokenizers — including one (Gemma-2) that required a chat-template fix since its instruction format has no `system` role.
 
 2. **Layer-by-layer single-layer sweep**. We tested `{single L=20, multi top-5, all-28}`. Running `expanded_analyze.py` with `--single_layer L` for every `L ∈ [0, 28]` would produce a per-layer accuracy curve and identify (a) the persona-vector "active region" empirically rather than via the coherence heuristic, (b) any layers where the classification fails — useful for understanding the geometry of trait representation depth-by-depth.
 

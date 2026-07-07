@@ -82,7 +82,14 @@ def chat_prompt(tokenizer, system_prompt: str, user_question: str) -> str:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_question},
     ]
-    return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    try:
+        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    except Exception as e:
+        if "system" not in str(e).lower():
+            raise
+        # Some chat templates (e.g. Gemma-2) don't support a system role; fold it into the user turn.
+        messages = [{"role": "user", "content": f"{system_prompt}\n\n{user_question}"}]
+        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 
 def generate_response(model, tokenizer, prompt: str, max_new_tokens: int) -> str:
