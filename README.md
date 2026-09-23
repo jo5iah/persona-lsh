@@ -245,6 +245,8 @@ The current experiment is one model, three traits, and a single judge. Several e
 
 7. **Live deployment**. The downstream payoff of all of the above is the proposal in `lsh_proposal.md`: emit the RP-LSH digest as part of every API response. A reference implementation against vLLM or TGI, plus a fingerprint-library comparator, would close the loop from research artifact to production-ready alignment telemetry.
 
+8. **2-bit quantized projections**. RP-LSH keeps only the sign of each projection (1 bit per hyperplane). In TLSH design work ([Oliver & Hagen, *Designing the Elements of a Fuzzy Hashing Scheme*, IEEE EUC 2021](https://ieeexplore.ieee.org/document/9742168/)), 2-bit bucket vectors outperformed 1-bit. The analogous test here is a 2-bit projection (sign + magnitude bucket) at the same byte budget — e.g. 512 hyperplanes × 2 bits vs 1024 × 1 bit — measuring classification accuracy, and fingerprint-library capacity/interference as more trait or user-defined directions are added. Note that magnitude bits leak more than angle alone, so the privacy argument in `lsh_proposal.md` would need to be re-checked.
+
 ## Citing the upstream work
 
 If you use this fork in published work, please cite the upstream Anthropic persona-vectors paper:
