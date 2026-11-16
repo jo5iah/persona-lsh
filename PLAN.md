@@ -116,6 +116,18 @@ Each is a cell or section in `persona-lsh-results.ipynb` on the rig; the first t
 - **d. Minimum digest size.** The smallest 1-bit budget that holds 99% per model, with bootstrap intervals
   over questions.
 - **e. Confidence intervals** on every accuracy, by bootstrap over questions. n is 42-114 per model.
+- **f. Beyond angular distance to the mean (future work).** A trait's vectors may form clusters and
+  outliers, for example one cluster per framing, or a few questions the model half-adopts. A single mean
+  hides that. Candidates, in rising cost:
+  - nearest-exemplar (kNN) Hamming distance, instead of distance to the mean digest
+  - several centroids per trait (k-means on the test vectors)
+  - Mahalanobis distance with a shrunk per-trait covariance, in the projected space
+  - outlier scores (local outlier factor, distance to the k-th neighbor) to flag questions off the trait's manifold
+  - set-to-set distances (energy distance, Wasserstein on projections) to compare a framing's or a model's
+    cloud with a trait's
+
+  Each needs to work on digests, not raw activations, to keep the privacy argument. Report them next to
+  cosine and RP-LSH, with 7e's per-framing view.
 
 ## 3. Controls and more data (GPU, 3 cards)
 
@@ -129,11 +141,25 @@ In order of what they settle:
      model's state.
 
   Together with 2a, this says what the digest measures. Layer-1 accuracy of 83-99% makes it urgent.
-- **b. Paraphrased instructions.** The persona-vectors data has 5 instruction pairs per trait, and only pair
-  0 has been used. Build the means on pairs 0-2 and test on pairs 3-4. This is generalization across
-  phrasings, and it costs another capture per pair.
-- **c. More questions.** `trait_data_eval/` has 20 more questions per trait, not used yet. Raise replies from
-  120 to 256 tokens to stop the truncation. That's README direction 6, half done.
+- **b+c. Drawn questions and random framings: the `rand40` design** (in `persona-lsh.ipynb` since
+  2026-11-16, `EXPERIMENT = "rand40"`). Per trait, the extract and eval sets (20 + 20, no overlap) are pooled
+  and shuffled into 20 **test** questions (CV and persona means) and 20 **eval** questions (held out,
+  classified against means built from test only). Each question gets one of the trait's 5 instruction pairs
+  at random, for both its `with` and `without` prompt.
+  - The draw is seeded (`SELECTION_SEED`) and saved in `selection.json`. Each `responses.json` row records
+    its source, split, framing and the exact prompts sent.
+  - By default every model gets the same draw (`DRAW_BY = "experiment"`), so models compare on the same
+    questions. Repeating the experiment with 2-3 seeds measures how much the draw itself matters.
+    `DRAW_BY = "run"` gives each model its own draw.
+  - The question is {random question + framing} → digest → persona direction. Results section 7e ranks
+    framings and traits by stability: eliciting share and accuracy per framing, and each framing's direction
+    against the other framings' mean.
+  - Cost: about 2x the first run per model. About 11 hours without OpenReasoning, which needs its own 4096-token
+    run.
+  - Limits: about 8 questions per framing per trait per model, so framing statistics are pooled over models,
+    and framing is confounded with question. A fully crossed design (every question x all 5 framings, 5x
+    cost) is the follow-up for the traits that vary.
+  - Still to do: replies from 120 to 256 tokens, to stop the truncation (README direction 6).
 - **d. OpenReasoning-Nemotron-7B** with `THINK_NEW_TOKENS = 4096`: about 9 hours.
 - **e. Gemma-4-12B.** Check host RAM and overcommit (`free -g`, `vm.overcommit_memory`). Add swap, or skip it.
 - **f. A second judge.** gpt-5.4 on a 10% sample of the rig's replies, to calibrate gpt-oss. Or a local
@@ -175,12 +201,20 @@ Cost: 9 conditions x 3 models (Llama-3.1-8B, Qwen3-8B, Bolt-E4B) x 7 traits is a
 ## 5. OCEAN + Honesty-Humility (its own notebook: `persona-ocean.ipynb` in the harness)
 
 **Items.**
-- The Big Five come from IPIP, the International Personality Item Pool, which is public domain.
+- The Big Five come from IPIP, the International Personality Item Pool, which is public domain. The
+  [five-factor-e](https://github.com/NeuroQuestAi/five-factor-e) package (`pip install five-factor-e`,
+  `from ipipneo import IpipNeo`) has the IPIP-NEO-120 and IPIP-NEO-300 item texts, the 1-5 Likert labels,
+  and `compute()`, which applies the reverse keying and scores the 5 domains and 30 facets against human norms
+  by sex and age. The item files carry only id and text, so `compute()` (or ipip.ori.org's scoring key) is
+  the source for keying and facets.
+- [ipip-neo-data](https://github.com/NeuroQuestAi/ipip-neo-data) holds scored human responses (John A.
+  Johnson's IPIP-NEO data, scored with five-factor-e). It's the human reference distribution to place each
+  model's scores in, as percentiles.
 - Honesty-Humility comes from the **IPIP-HEXACO** scales (Ashton, Lee & Goldberg 2007; IPIP items, public
   domain). Don't use the HEXACO-PI-R items: hexaco.org licenses those free only for non-profit academic
   research, and charges for non-academic use. That conflicts with SBIR work through Azogue.
-- Which IPIP Big-Five inventory the earlier study used is still open: the 50-item Big-Five Factor Markers
-  or the IPIP-NEO-120.
+- Inventory: IPIP-NEO-120 (one prompt per item, 120 per condition) as the default; IPIP-NEO-300 for facets
+  with more items per facet, at 2.5x the cost. Confirm which one the earlier study used.
 
 **Part A, black-box (repeat the earlier study).**
 - Each item is one prompt with a 1-5 Likert answer, parsed and reverse-keyed into factor scores (O, C, E, A,
@@ -276,7 +310,7 @@ The results notebook's 7d is the first pass. The full version:
 ## 9. Open questions for Josiah
 
 - The exact six texts of the earlier differential prompts, and which DAN version.
-- Which IPIP Big-Five inventory the earlier study used.
+- IPIP-NEO-120 or -300 (five-factor-e has both): which one the earlier study used.
 - The Cisco constitutional-alignment paper: title or link.
 - Open-sourcing: the README results above are a public claim, while SBIR wants an edge (`NSF_PLAN.md`
   "Decision needed").
