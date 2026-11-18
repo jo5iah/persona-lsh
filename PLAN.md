@@ -200,6 +200,13 @@ Cost: 9 conditions x 3 models (Llama-3.1-8B, Qwen3-8B, Bolt-E4B) x 7 traits is a
 
 ## 5. OCEAN + Honesty-Humility (its own notebook: `persona-ocean.ipynb` in the harness)
 
+**Update 2026-11-18:** prepared as `personality/` in this repo (`persona-hexaco.ipynb`,
+`persona-hexaco-results.ipynb`, `hexaco.py`; see `personality/README.md`). It settles this section's open
+choices: IPIP-NEO-120; Honesty-Humility from the HEXACO-PI-R 100-item form on hexaco.org (text kept out of
+the repo, non-profit academic terms; the IPIP-HEXACO scale below stays the fallback for SBIR work); the 3 x 3
+prompts are Josiah's DAN x INFO phrases, not the drafts of section 4; no persona instruction, so part B's
+directions come from the model's own answers on a random half of each factor's items. Not yet run.
+
 **Items.**
 - The Big Five come from IPIP, the International Personality Item Pool, which is public domain. The
   [five-factor-e](https://github.com/NeuroQuestAi/five-factor-e) package (`pip install five-factor-e`,
