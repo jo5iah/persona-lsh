@@ -7,6 +7,7 @@ that repo's `notebooks/persona-lsh*.ipynb` and `docs/persona-lsh-notes.md`.
 | File | What |
 |---|---|
 | `persona-lsh.ipynb` | Capture, judging and classification, on the rig (gpu kernel). Resumable |
+| `qwen2_5-lsh.ipynb` | Hardware test: Qwen2.5-7B alone, in bf16 then fp16. Before capture it times and profiles the batched pass with the first layers on card 2, 1, then 0 (section 3a). Why: agent-harness `ops/gpurig2/history.md` |
 | `persona-lsh-results.ipynb` | Interpretation and figures; section 11 is the write-up of each run. Needs torch for sections 7 and 9c (CPU is enough) |
 | `notes.md` | Where things stand, what goes into the README, the rig runbook, copying data off the rig |
 
