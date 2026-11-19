@@ -14,5 +14,7 @@ from __future__ import annotations
 
 from .base import ArrayLike, LSHBackend
 from .rp_backend import RandomProjectionBackend
+from .seed import base_seed, draw_plus_rand, model_fingerprint, model_seed, projection_seed, replicate_seeds
 
-__all__ = ["ArrayLike", "LSHBackend", "RandomProjectionBackend"]
+__all__ = ["ArrayLike", "LSHBackend", "RandomProjectionBackend", "base_seed", "draw_plus_rand",
+           "model_fingerprint", "model_seed", "projection_seed", "replicate_seeds"]
