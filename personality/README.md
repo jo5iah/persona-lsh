@@ -6,7 +6,7 @@ answers 136 inventory items under nine prompts, and every answer's hidden states
 | File | What |
 |---|---|
 | `persona-hexaco.ipynb` | Capture and ratings, on the rig (gpu kernel). Resumable |
-| `persona-hexaco-results.ipynb` | The analysis and its figures, in the layout of the harness's `persona-lsh-results.ipynb`. No card needed (CPU torch) |
+| `persona-hexaco-results.ipynb` | The analysis and its figures, in the layout of `../experiments/persona-lsh-results.ipynb`. No card needed (CPU torch) |
 | `hexaco.py` | Items, keying, the train/eval draw, the prompts, rating parsing, scoring, vector math |
 | `ipip_neo_120.json` | The IPIP-NEO-120 items with factor, facet and keying |
 | `../tests/test_personality.py` | Offline tests of `hexaco.py` |

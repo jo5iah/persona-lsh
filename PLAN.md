@@ -8,9 +8,9 @@ and controls the run calls for, and three new studies:
 
 The SBIR Phase I deadline (2027-03-04, `../funding/NSF_PLAN.md`) sets the pace.
 
-The runs happen from notebooks in the agent-harness repo (`notebooks/persona-lsh.ipynb` for capture, judge
-and analysis; `notebooks/persona-lsh-results.ipynb` for the interpretation and graphs). They import this repo's
-`lsh/` and `demo/` code. Raw outputs live on the rig only, in `~/persona-lsh-output` (about 9 hours of compute):
+The runs happen from the notebooks in `experiments/` (`persona-lsh.ipynb` for capture, judge and analysis;
+`persona-lsh-results.ipynb` for the interpretation and graphs; in the agent-harness repo until 2026-11-19). They
+import this repo's `lsh/` and `demo/` code, and agent-harness for the judge and the rig's config and tooling. Raw outputs live on the rig only, in `~/persona-lsh-output` (about 9 hours of compute):
 **back them up off the rig before anything else.** A reinstall on 2026-11-14 already lost one capture.
 
 ## 0. Hardware and budget
@@ -198,7 +198,7 @@ What to measure, per model:
 Cost: 9 conditions x 3 models (Llama-3.1-8B, Qwen3-8B, Bolt-E4B) x 7 traits is about 9 hours of capture and
 3 hours of judging. One night.
 
-## 5. OCEAN + Honesty-Humility (its own notebook: `persona-ocean.ipynb` in the harness)
+## 5. OCEAN + Honesty-Humility (its own notebooks: `personality/persona-hexaco*.ipynb`)
 
 **Update 2026-11-18:** prepared as `personality/` in this repo (`persona-hexaco.ipynb`,
 `persona-hexaco-results.ipynb`, `hexaco.py`; see `personality/README.md`). It settles this section's open
@@ -266,7 +266,7 @@ The results notebook's 7d is the first pass. The full version:
 - **Privacy:** how well can a direction be recovered from a digest? Reconstruction error vs bits, both
   schemes.
 
-## 7. Constitution bounds under attack (its own notebook: `constitution-lsh.ipynb` in the harness)
+## 7. Constitution bounds under attack (its own notebook: `experiments/constitution-lsh.ipynb`)
 
 **Sources:**
 - Anthropic's constitution for Claude (2026-01-21, CC0 1.0)
@@ -306,12 +306,12 @@ The results notebook's 7d is the first pass. The full version:
 |---|---|---|
 | Now | Rig back on 3 cards, Ollama units, judge without sudo | harness `ops/gpurig2/setup.md` part I |
 | Now | Back up `~/persona-lsh-output` and `~/gpu-telemetry` off the rig | rig |
-| Week 1 | Results 7b-7d on the rig; README section from section 1 | harness, this repo |
-| Weeks 1-2 | Controls 3a-3c, OpenReasoning at 4096 tokens | harness |
-| Weeks 2-3 | Differential prompting, 3 models | harness |
-| Weeks 3-5 | OCEAN/HEXACO: part A, then parts B and C | harness `persona-ocean.ipynb` |
+| Week 1 | Results 7b-7d on the rig; README section from section 1 | `experiments/` |
+| Weeks 1-2 | Controls 3a-3c, OpenReasoning at 4096 tokens | `experiments/` |
+| Weeks 2-3 | Differential prompting, 3 models | `experiments/` |
+| Weeks 3-5 | OCEAN/HEXACO: part A, then parts B and C | `personality/persona-hexaco.ipynb` |
 | Weeks 3-5 | 2-bit backend and library capacity (CPU) | this repo `lsh/` |
-| Weeks 5-8 | Constitution bounds | harness `constitution-lsh.ipynb` |
+| Weeks 5-8 | Constitution bounds | `experiments/constitution-lsh.ipynb` |
 | Dec-Feb | Project Pitch and Phase I proposal with these results | `../funding/` |
 
 ## 9. Open questions for Josiah
