@@ -205,7 +205,71 @@ Cost: 9 conditions x 3 models (Llama-3.1-8B, Qwen3-8B, Bolt-E4B) x 7 traits is a
 choices: IPIP-NEO-120; Honesty-Humility from the HEXACO-PI-R 100-item form on hexaco.org (text kept out of
 the repo, non-profit academic terms; the IPIP-HEXACO scale below stays the fallback for SBIR work); the 3 x 3
 prompts are Josiah's DAN x INFO phrases, not the drafts of section 4; no persona instruction, so part B's
-directions come from the model's own answers on a random half of each factor's items. Not yet run.
+directions come from the model's own answers on a random half of each factor's items.
+
+**First run, 2026-11-18/19** (`hexaco136-t256-s26988506`, greedy, 256-token replies, gpt-oss judge; numbers from
+`personality/persona-hexaco-results.ipynb`). Five models: Llama-3.1-8B, Nemotron-Nano-8B, Granite-4.2-8B,
+Bolt-E4B, Qwen3-8B (thinking off). 6.6 h of capture on cards 0-2 at 150 W.
+
+What it shows:
+1. **One shared self-description.** Four of the five rate themselves high on C, A and H (about 4.3-4.6 of 5), low on
+   N (about 1.5), and slightly introverted (E about 2.5-3). Nemotron-Nano is bland: everything about 3.2, little
+   spread. That is the earlier study's "small models are bland", in one model.
+2. **The prompts barely move the profile.** The mean |shift| over prompts and factors is 0.23 points.
+   - Llama-3.1-8B moves most (0.45): "take your time" and "this is a HEXACO test" make it more socially desirable
+     (C up 1.2, H up 1.1, N down 1.25).
+   - Bolt-E4B answers with a bare digit (1 token on average) and barely moves (0.10).
+   - DAN and INFO mostly add up: the joint shift against the sum of the two single shifts has rho 0.7-1.0 in 14
+     of 20 corner prompts. The exceptions are Nemotron-Nano (0.23-0.66, which hardly moves at all), Granite D2I1
+     (+0.03) and Qwen3 D0I1 (-0.04).
+3. **The earlier black-box findings don't reproduce.** Pooled over models, INFO0 ("HEXACO test") raises C (+0.10),
+   E (+0.12) and A (+0.11) and lowers O (-0.13); its N shift (-0.06) isn't significant. DAN doesn't lower C. DAN2
+   ("take your time") lowers E and N by about 0.1 and raises H by 0.11.
+4. **The six factor directions are mostly one axis.** Section 7a puts the leakage between factor directions at
+   0.5-1.0 ("confused" in 8 of 10 run-by-kind cells). Every pair that gets confused involves N (C to N: cosine
+   -0.62). The likely reading is a social-desirability or agreement axis, not six traits. Even so, each factor's
+   direction predicts its own held-out answers (median rho +0.34 to +0.80 by run and kind).
+5. **Magnitude grades the trait in some models only.** Llama and Qwen3: projection within a pole correlates with
+   the rating (+0.20 to +0.37). Bolt and Nemotron: sign only. This is evidence for section 6's 2-bit codes, but
+   per model.
+6. **The axis is stable across prompts.** Directions rebuilt per DAN level or per INFO level agree at cosine
+   0.61-0.85. C and H are the least stable. A library built under one prompt mostly holds under another.
+7. **RP-LSH again matches cosine,** now in a low-signal regime. On factor identification (20-63%, chance 17%) and
+   prompt identification (90-100% on prompt vectors) it is within about 3 points of cosine at 1024 bits. At 256
+   bits it loses up to 10 points on Bolt-E4B (hidden size 2560).
+8. **Prompt identification reads the words.** It is 100% on prompt vectors but best at 7-17% of depth: lexical,
+   like persona-lsh's layer-1 accuracy (section 3a's question again).
+9. **The white-box shift tracks the black-box shift weakly.** Qwen3 response vectors are the exception: rho
+   +0.72, 95% same sign. Prompt vectors: rho -0.12 to +0.43.
+
+Problems with the run:
+- **Granite-4.2's numbers don't count.** Its template defaults to `enable_thinking=True` and opens `<think>`, so
+  70% of replies hit the 256-token cap and only 52% were rated.
+- **Qwen2.5-7B dropped card 06:00.0 again** (Xid 79), in D0I1's generation with short replies, even though it
+  ran last. So the drops come from the model, not from "the first heavy load". One-second samples reached 282 W
+  against the 150 W cap. It is out of `ONLY`. OpenReasoning-Nemotron-7B (same qwen2 architecture) is the test
+  that separates the architecture from the weights.
+- One train/eval cut, greedy only, so there is no sampling noise to judge "stable" against.
+
+**Next pass (in the notebooks since 2026-11-19, not yet run).** It extends the same experiment: the nine greedy
+conditions are reused.
+- **Scale reversal** (`D1I2r`, 1 = strongly agree ... 5 = strongly disagree). It tells reading the statement
+  from a digit habit (results 4b), and whether the shared axis follows the meaning or the digit (results 6b).
+  This tests point 4.
+- **Sampling at temperature 0.7 and 1.0**, every prompt, two samples at the baseline. It gives the noise floor
+  that stable vs malleable needs, and checks whether the greedy shifts hold (results 4c).
+- **Granite with thinking off** (`granite4.2-8b-nothink`). The rendered-prompt check now stops any run whose
+  template opens `<think>` without `think=True`.
+- **Leave one item out** for CV and for the factor directions: all 24 items per factor (16 for H) instead of
+  half, each item held out under every prompt at once. A no-signal factor scores below chance under leave one
+  out, so read low numbers as no signal.
+- Cost: about 10-11 h of capture and 3-4 h of judging.
+
+**Cross-reference with persona-lsh** (`personality/trait-crossref.ipynb`, CPU, not yet run on real data). It
+compares the 7 trait directions with the 6 factor directions per model. It needs no shared seed, only the same
+checkpoint, layer and vector kind. Priors to test: evil at low H and low A, sycophantic at low H and high A,
+impolite at low A. Digests use model-derived seeds (`lsh/seed.py`): a hash of the HF snapshot, salted with the
+project's common salt, plus a plusRand offset.
 
 **Items.**
 - The Big Five come from IPIP, the International Personality Item Pool, which is public domain. The
@@ -310,6 +374,8 @@ The results notebook's 7d is the first pass. The full version:
 | Weeks 1-2 | Controls 3a-3c, OpenReasoning at 4096 tokens | `experiments/` |
 | Weeks 2-3 | Differential prompting, 3 models | `experiments/` |
 | Weeks 3-5 | OCEAN/HEXACO: part A, then parts B and C | `personality/persona-hexaco.ipynb` |
+| Next night | HEXACO second pass: scale reversal, sampling at 0.7 and 1.0, Granite rerun; then the trait cross-reference | `personality/` |
+| After that | OpenReasoning-Nemotron-7B as the Qwen2.5 drop test (same architecture, other weights) | `experiments/`, harness `ops/gpurig2/` |
 | Weeks 3-5 | 2-bit backend and library capacity (CPU) | this repo `lsh/` |
 | Weeks 5-8 | Constitution bounds | `experiments/constitution-lsh.ipynb` |
 | Dec-Feb | Project Pitch and Phase I proposal with these results | `../funding/` |
@@ -317,7 +383,8 @@ The results notebook's 7d is the first pass. The full version:
 ## 9. Open questions for Josiah
 
 - The exact six texts of the earlier differential prompts, and which DAN version.
-- IPIP-NEO-120 or -300 (five-factor-e has both): which one the earlier study used.
+- IPIP-NEO-120 or -300 (five-factor-e has both): which one the earlier study used. (The first run used -120;
+  its findings on INFO and DAN didn't reproduce, so the earlier study's exact setup matters for the comparison.)
 - The Cisco constitutional-alignment paper: title or link.
 - Open-sourcing: the README results above are a public claim, while SBIR wants an edge (`NSF_PLAN.md`
   "Decision needed").
