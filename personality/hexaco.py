@@ -156,24 +156,70 @@ def records(items):
 
 
 def conditions():
-    """All nine condition names, DAN-major: D0I0, D0I1, ..., D2I2."""
+    """The nine prompt names, DAN-major: D0I0, D0I1, ..., D2I2 (greedy, standard scale)."""
     return [f"D{d}I{i}" for d in range(len(DAN)) for i in range(len(INFO))]
+
+
+# A condition is a prompt plus how it's asked and decoded:
+#   "D1I2"           greedy, standard scale (1 = strongly disagree)
+#   "D1I2r"          greedy, reversed scale (1 = strongly agree)
+#   "D1I2_t0.7_s0"   sampled at temperature 0.7, sample 0 ("D1I2r_t0.7_s0" with the reversed scale)
+_CONDITION = re.compile(r"D(\d)I(\d)(r?)(?:_t(\d+(?:\.\d+)?)_s(\d+))?")
+
+
+def parse_condition(condition):
+    """{"prompt": "D1I2", "dan", "info", "reversed", "temperature" (None = greedy), "sample"}."""
+    m = _CONDITION.fullmatch(condition)
+    if not m or int(m[1]) >= len(DAN) or int(m[2]) >= len(INFO):
+        raise ValueError(f"not a condition: {condition!r}")
+    return {"prompt": f"D{m[1]}I{m[2]}", "dan": int(m[1]), "info": int(m[2]), "reversed": m[3] == "r",
+            "temperature": float(m[4]) if m[4] else None, "sample": int(m[5]) if m[5] else None}
+
+
+def condition_name(prompt_name, reversed=False, temperature=None, sample=0):
+    name = prompt_name + ("r" if reversed else "")
+    return name if temperature is None else f"{name}_t{temperature:g}_s{sample}"
+
+
+def design_conditions(reversed_prompts=(), temperatures=(), sampled_prompts=(), samples=None):
+    """Every condition of a design, in capture order: the nine greedy prompts, the greedy reversed-scale
+    prompts, then per temperature the sampled prompts (`samples` maps a prompt to its number of samples,
+    default 1)."""
+    samples = samples or {}
+    out = conditions() + [condition_name(p, reversed=True) for p in reversed_prompts]
+    for t in temperatures:
+        out += [condition_name(p, temperature=t, sample=s) for p in sampled_prompts for s in range(samples.get(p, 1))]
+    for c in out:
+        parse_condition(c)
+    assert len(set(out)) == len(out), "a condition is listed twice"
+    return out
 
 
 def levels(condition):
     """(DAN index, INFO index) of a condition name."""
-    m = re.fullmatch(r"D(\d)I(\d)", condition)
-    if not m or int(m[1]) >= len(DAN) or int(m[2]) >= len(INFO):
-        raise ValueError(f"not a condition: {condition!r}")
-    return int(m[1]), int(m[2])
+    c = parse_condition(condition)
+    return c["dan"], c["info"]
+
+
+def scale_labels(reversed=False):
+    """{digit: label} as shown to the model: SCALE, or with the labels in the opposite order."""
+    return {n: SCALE[6 - n] for n in SCALE} if reversed else dict(SCALE)
+
+
+def scale_text(reversed=False):
+    return ", ".join(f"{n} = {label}" for n, label in scale_labels(reversed).items())
 
 
 def prompt(item, condition):
-    """The user message for one item under one condition."""
-    d, i = levels(condition)
-    scale = ", ".join(f"{n} = {label}" for n, label in SCALE.items())
-    return (PREAMBLE.format(dan=DAN[d], info=INFO[i]) + "\n\n"
-            + QUESTION.format(statement=item.statement, scale=scale))
+    """The user message for one item under one condition (temperature doesn't change it)."""
+    c = parse_condition(condition)
+    return (PREAMBLE.format(dan=DAN[c["dan"]], info=INFO[c["info"]]) + "\n\n"
+            + QUESTION.format(statement=item.statement, scale=scale_text(c["reversed"])))
+
+
+def agreement(digit, reversed=False):
+    """The digit a model gave, on the standard scale (5 = strongly agree), whichever scale it was shown."""
+    return 6 - digit if reversed else digit
 
 
 def draw(items, seed):
@@ -198,15 +244,16 @@ _BARE = re.compile(r"\**\s*([1-5])\s*\**\s*[.)]?\s*(?:(?:=|:|-|–|—)\s*\**\s*
                    re.IGNORECASE)
 
 
-def parse_rating(reply):
-    """The rating if the reply is nothing but one ("4", "4.", "**4**", "4 = agree"), else None.
+def parse_rating(reply, reversed=False):
+    """The digit if the reply is nothing but one ("4", "4.", "**4**", "4 = agree"), else None.
 
-    Anything longer goes to the judge. A label that doesn't belong to the number is not a bare rating."""
+    Anything longer goes to the judge. A label that doesn't belong to the number on the scale the model was
+    shown (`reversed`) is not a bare rating. The digit is returned as given: `agreement` converts it."""
     m = _BARE.fullmatch((reply or "").strip())
     if not m:
         return None
     rating = int(m[1])
-    if m[2] and m[2].strip().lower() != SCALE[rating]:
+    if m[2] and m[2].strip().lower() != scale_labels(reversed)[rating]:
         return None
     return rating
 
@@ -264,6 +311,22 @@ def nearest_mean(train, test, hasher=None):
 
 def accuracy(rows, key="cosine_pred"):
     return sum(r[key] == r["true"] for r in rows) / len(rows) if rows else None
+
+
+def sample_seed(seed, run, condition, batch):
+    """The torch seed for one sampled batch: fixed by the experiment's seed, the run, the condition and the
+    batch, so a resumed run draws the same replies (on the same cards and library versions)."""
+    digest = hashlib.sha256(f"{seed}/{run}/{condition}/{batch}".encode()).hexdigest()
+    return int(digest, 16) % 2**32
+
+
+def leave_one_out(groups):
+    """(train mask, test mask) per distinct value of `groups`: leave one group out at a time.
+
+    With item ids as groups, an item is held out under every prompt at once. Its answers under the other
+    prompts are nearly the same vector, so holding out a single answer would leak it."""
+    groups = np.asarray(groups)
+    return [(groups != g, groups == g) for g in np.unique(groups)]
 
 
 def folds(n, k, seed):

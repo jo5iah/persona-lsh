@@ -135,3 +135,47 @@ def test_covariance_direction_and_spearman():
     assert hx.spearman(x @ d, y) > 0.95
     assert hx.spearman([1, 2, 3, 4], [8, 6, 4, 2]) == pytest.approx(-1.0)
     assert hx.spearman([1, 1, 1], [1, 2, 3]) is None and hx.spearman([1, 2], [1, 2]) is None
+
+
+def test_condition_names_round_trip():
+    assert hx.parse_condition("D1I2") == {"prompt": "D1I2", "dan": 1, "info": 2, "reversed": False,
+                                          "temperature": None, "sample": None}
+    c = hx.parse_condition("D0I1r_t0.7_s3")
+    assert (c["prompt"], c["reversed"], c["temperature"], c["sample"]) == ("D0I1", True, 0.7, 3)
+    assert hx.condition_name("D1I2", temperature=1.0, sample=1) == "D1I2_t1_s1"
+    assert hx.parse_condition("D1I2_t1_s1")["temperature"] == 1.0
+    assert hx.levels("D2I0r_t0.7_s0") == (2, 0)
+    for bad in ("D1I2R", "D1I2_t0.7", "D3I0r"):
+        with pytest.raises(ValueError):
+            hx.parse_condition(bad)
+
+
+def test_design_conditions_order_and_counts():
+    conds = hx.design_conditions(reversed_prompts=[hx.BASELINE], temperatures=[0.7, 1.0],
+                                 sampled_prompts=hx.conditions(), samples={hx.BASELINE: 2})
+    assert conds[:9] == hx.conditions() and conds[9] == "D1I2r"
+    assert len(conds) == 9 + 1 + 2 * (9 + 1)
+    assert "D1I2_t0.7_s1" in conds and "D0I0_t0.7_s1" not in conds
+    assert hx.design_conditions() == hx.conditions()
+
+
+def test_reversed_scale_prompt_parse_and_agreement():
+    item = hx.ipip_items()[0]
+    std, rev = hx.prompt(item, "D1I2"), hx.prompt(item, "D1I2r")
+    assert "1 = strongly disagree" in std and "1 = strongly agree, 2 = agree, 3 = neutral, 4 = disagree, 5 = strongly disagree" in rev
+    assert std.splitlines()[0] == rev.splitlines()[0]
+    assert hx.prompt(item, "D1I2_t0.7_s0") == std               # temperature doesn't change the prompt
+    assert hx.parse_rating("1 = strongly agree", reversed=True) == 1
+    assert hx.parse_rating("1 = strongly agree") is None         # wrong label for the standard scale
+    assert hx.agreement(1, reversed=True) == 5 and hx.agreement(4) == 4
+
+
+def test_sample_seed_and_leave_one_out():
+    a = hx.sample_seed(1, "m", "D1I2_t0.7_s0", 0)
+    assert a == hx.sample_seed(1, "m", "D1I2_t0.7_s0", 0) and 0 <= a < 2**32
+    assert a != hx.sample_seed(1, "m", "D1I2_t0.7_s1", 0) != hx.sample_seed(1, "m", "D1I2_t0.7_s0", 1)
+    groups = [3, 5, 3, 7, 5]
+    splits = hx.leave_one_out(groups)
+    assert len(splits) == 3
+    train, test = splits[0]                                       # item 3 out, both of its answers
+    assert test.tolist() == [True, False, True, False, False] and (train == ~test).all()
