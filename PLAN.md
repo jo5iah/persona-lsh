@@ -8,6 +8,11 @@ and controls the run calls for, and three new studies:
 
 The SBIR Phase I deadline (2027-03-04, `../funding/NSF_PLAN.md`) sets the pace.
 
+**Updated 2026-11-20** with the three drawn-design runs since: `rand40` (2026-11-16) and randX seeds 48213977
+(2026-11-18) and 52466129 (2026-11-19). Sections 0-3, 6 and 8 carry their results; the write-ups are
+`experiments/persona-lsh-results.ipynb` sections 11a-11d, and `experiments/notes.md` section 0 is the short
+status.
+
 The runs happen from the notebooks in `experiments/` (`persona-lsh.ipynb` for capture, judge and analysis;
 `persona-lsh-results.ipynb` for the interpretation and graphs; in the agent-harness repo until 2026-11-19). They
 import this repo's `lsh/` and `demo/` code, and agent-harness for the judge and the rig's config and tooling. Raw outputs live on the rig only, in `~/persona-lsh-output` (about 9 hours of compute):
@@ -20,102 +25,142 @@ import this repo's `lsh/` and `demo/` code, and agent-harness for the judge and 
 | Cards | 3x GTX 1080 Ti 11 GB (Pascal, sm_61) | 4x |
 | One model, fp16 (transformers) | 28.6 GiB free, about 14B parameters | about 38 GiB, about 18B |
 | Generation | 25-35 tok/s per model, batch 8, greedy | same per model |
-| Judge | gpt-oss-20b on Ollama, local, free | same |
+| Judge | gemma-qat (gemma4:12b-it-qat) sets the gate, gpt-oss-20b is the second opinion; both on Ollama, local, free | same |
 
-- One full pass (8 runs x 7 traits x 20 questions, capture and judge) took about 9 hours.
-- A non-thinking capture is about 20 minutes per model for 7 traits. A thinking run is about 3 hours at
-  1024 tokens.
+- The first pass (8 runs x 7 traits x 20 questions at 120 tokens, capture and judge) took about 9 hours.
+- The drawn design (40 questions per trait, 256-token replies) is 73-90 minutes of capture per non-thinking
+  model and about half an hour of judging per model for the two judges. Five models took 9.6 hours end to end
+  (2026-11-19). Qwen3-8B thinking took 6.9 hours at 1024 thinking tokens (rand40).
+- The cards run capped at 150 W (200 W crashed a capture). One-second samples still reach 300-330 W.
+- Card 0 (bus 06:00.0) has dropped off the bus (Xid 79) in Qwen2.5-7B captures, and once between models
+  (2026-11-18). The 2026-11-19 run, without Qwen2.5, was clean. Until that is understood, every run resumes
+  from what's saved and Qwen2.5-7B stays out of `ONLY` (section 8).
 - Host RAM is a limit: Gemma-4-12B's single 24 GB safetensors file failed to mmap.
 - gpt-5.4 API calls are kept for spot checks against the local judge.
 
 ## 1. Reportable now
 
-These hold up on the numbers in `persona-lsh-results.ipynb` and can go in the README. A draft section
-follows the list.
+These hold up on the numbers in `persona-lsh-results.ipynb` section 11 and can go in the README. A draft section
+follows the list. Four experiments back them: the published design (2026-11-15: 8 runs, 20 questions, one
+instruction pair), and three draws of the rand40 design (20 test + 20 held-out questions per trait, a random
+instruction pair per question): `rand40` (7 runs, 120 tokens, gpt-oss gate), seed 48213977 (4 runs, 256 tokens,
+median of three judges) and seed 52466129 (5 runs, 256 tokens, gemma-qat gate).
 
-1. **Cross-architecture: from 4 models to 8.** Four new models, all at 95-100%: Qwen3-8B (thinking off
-   and on), Granite-4.2-8B, Llama-3.1-Nemotron-Nano-8B and Nemotron-3.5-Bolt-E4B (gemma4 architecture). Qwen2.5-7B
-   and Llama-3.1-8B were rerun. All ran in fp16 on Pascal cards with batched greedy generation and a different
-   judge.
-2. **README direction 3 is done: a 7-trait library.** With 4-7 kept traits per model (chance 14-25%), cosine
-   classified 552 of 556 eliciting questions (99.3%) at the default layer. RP-LSH at 1024 bits scores 97.6-100%
-   per model, and at 256 bits 97.5-100%.
-3. **README direction 2 is done: the layer sweep.** The best single layer sits at 66-80% of depth (69-71% for
-   5 of 7 models), which supports the 20/28 default. Accuracy stays at or above 93% at every layer in 6 of 7
-   models.
-4. **New: transfer within a family.** Persona means from one model classify another model's questions at
-   100%, in both directions:
-   - Llama-3.1-8B and its NVIDIA fine-tune Nemotron-Nano-8B: 4 shared traits, direction cosines 0.43-0.82.
-   - Qwen3-8B with thinking off and on: 6 traits, cosines 0.60-0.92.
+1. **Classification holds across models, designs and draws.** Default layer, cosine, cross-validated / held
+   out: 98.2% / 97.4%, 95.9% / 99.1% and 98.1% / 99.3% on the three draws; chance 14-33% (3-7 kept traits). The
+   published design gave 99.3% (552 of 556). Seven models from five families: Qwen2.5-7B, Llama-3.1-8B,
+   Nemotron-Nano-8B, Qwen3-8B (thinking off and on), Granite-4.2-8B and Nemotron-3.5-Bolt-E4B (gemma4
+   architecture), in fp16 on Pascal cards with batched greedy generation and local judges.
+2. **README direction 3 is done: a 7-trait library,** tested with random framings and a held-out set.
+3. **RP-LSH keeps the signal, and its floor is exact cosine.** At 1024 bits it is within 2 points of cosine in
+   every pooled check. Held out, 512 bits (64 bytes) is level with cosine on rand40, 0.2 points above on seed
+   52466129 and 1.5 above on seed 48213977. Past that the excess shrinks as bits^-0.5, and the hash misses the
+   questions cosine misses.
+4. **README direction 8, first answer: sign bits are close to the right code.** 2-bit magnitude codes had the
+   lowest error at 128-256 bits in all three draws, by about half a point and inside the intervals. 3, 4 and 8
+   bits per projection are worse at useful sizes (section 6).
+5. **README direction 2 is done: the layer sweep.** The best single layer sits at 59-71% of depth for most
+   models (66-69% for four of five on the latest draw; Granite peaks late), which supports the 20/28 default.
+6. **Transfer within a family.** Llama-3.1-8B and its NVIDIA fine-tune Nemotron-Nano-8B: 96-100% in both
+   directions on 3-4 shared traits in three experiments, direction cosines 0.43-0.84; 88-90% when three traits
+   that Nemotron-Nano barely expresses were kept. Qwen3-8B with thinking off and on: 97-100% on 6-7 traits.
+   One fingerprint library can serve a model, its fine-tunes and its thinking modes, for the traits they all
+   express. That is a commercial point for the pitch.
+7. **The geometry makes sense and repeats.** In every experiment the most opposed directions are optimistic vs
+   impolite, evil and apathetic (-0.31 to -0.49), and the closest are apathetic-impolite, evil-impolite and
+   sycophantic-humorous (0.33-0.57).
+8. **Elicitation itself fingerprints a model.**
+   - Granite-4.2-8B gives no `evil` in any experiment (half to nearly all refused).
+   - Nemotron-Nano-8B gives almost no `sycophantic` (5-7 of 40), where its base Llama-3.1-8B gives 30 and 33
+     (rand40 and the latest draw).
+   - Under the same judge, eliciting counts per model repeat across seeds within 13 of 280.
+   - Failures are almost always the persona reply scoring below 50. The opposite reply reaches 50 in 0.5-2% of
+     question pairs.
+9. **Elicitation depends on the instruction wording, the same way in every draw.** `impolite` elicits 8% with
+   instruction pair 0, the only pair the published design used, and 68% with pair 3 (rand40); `evil` 75% with
+   pair 0 and 2% with pair 2. The first version of this list said "almost no model will be `impolite`": that
+   was the instruction, not the models.
+10. **The result doesn't rest on one judge.** Against gpt-5.4 on 240 published replies, gemma-qat lands on the
+    same side of 50 for 96% and gpt-oss for 94% (gpt-oss scores persona replies 5-16 points lower). On seed
+    52466129 the two agree on the gate for 90% of 1,400 question pairs (κ 0.80), accuracy is the same under
+    either gate (98.7% and 98.8% leave-one-out), and the questions only one of them passes still classify
+    92-93%. nemotron-30b was tried and dropped (73% against gpt-5.4).
 
-   One fingerprint library can serve a model, its fine-tunes and its thinking modes. That is a commercial
-   point for the pitch.
-5. **New: the geometry makes sense.** The most opposed directions are optimistic vs impolite (-0.49), evil
-   (-0.46) and apathetic (-0.31). The closest are evil-impolite (0.41) and apathetic-impolite (0.39).
-6. **New: elicitation itself fingerprints a model.** Which traits a model will take on varies by model, and
-   the variation is consistent:
-   - Granite-4.2-8B refuses `evil` (19 of 20 refused).
-   - Nemotron-Nano-8B gives no `sycophantic`, where its base model Llama-3.1-8B gives 19 of 20.
-   - Almost no model will be `impolite`.
-
-   Failures are almost always the persona reply scoring below 50. The opposite reply leaked the trait 6 times
-   in 1,120 question pairs.
-7. **The judge.** gpt-oss-20b scores persona replies 5-16 points lower than gpt-5.4 on the published
-   replies, and scores opposite replies about the same. It is conservative: it costs eliciting questions, not
-   accuracy.
+**The known weak spot, to report with it:** `impolite` is 87-88% correct against 93-100% for the other traits,
+and most misses are `impolite` read as `apathetic` or `evil`. Its framings point in different directions (cosine
+0.46-0.61 between them, 0.69-0.90 for the other six), and it classifies 0% under instruction pair 4 in both
+256-token draws.
 
 **Caveats to print with it:**
-- one seed
-- 20 questions per trait
-- the persona-vectors paper's first instruction pair only
-- 120-token replies, which 70-100% of non-thinking replies hit
-- the smallest runs have only 4 questions in a trait (Granite)
-- layer-1 accuracy is 83-99%, so the replies' **words** already separate the traits (section 3a tests what
+- three draws, but under three gates and three model sets, and only the digest-size curves have intervals
+- about 8 questions per framing, trait and model, so framing is confounded with question
+- local judges
+- 256-token replies, which 56-96% of replies still hit (the published design and rand40: 120 tokens)
+- the thinnest kept traits have 4-9 eliciting questions
+- layer-1 accuracy is 80-96%, so the replies' **words** already separate the traits (section 3a tests what
   that means)
+- questions that fail the gate still classify 65-77% (chance 17%), and 57% where neither judge sees the trait:
+  the digest follows the instruction in part. Until 3a runs, the claim is "detects what the model was steered
+  toward"
 
 **Not yet reportable:**
 - OpenReasoning-Nemotron-7B: 206 of 280 replies never finished thinking within 1024 tokens.
-- Sections 7b-7d of the results notebook: non-eliciting questions, projection vs score, and 2-bit codes.
+- Qwen2.5-7B and Qwen3-8B thinking at 256 tokens, and Gemma-4-12B in any design: not run.
 
 ### Draft README section
 
-> ## Expanded run: 7 traits, 6 models on a local rig (2026-11-15)
+> ## Expanded run: 7 traits on a local rig, drawn questions and framings
 >
-> The expanded experiment (20 questions per trait, 3-fold CV) ran again on a local rig: 3x GTX 1080 Ti in
-> fp16, batched greedy generation, with gpt-oss-20b as the elicitation judge. It covers all seven traits in
-> `data_generation/trait_data_extract/` and four more models. Per model, a trait counts only if it has at
-> least 4 eliciting questions, so chance differs by model.
+> The expanded experiment ran again on a local rig (3x GTX 1080 Ti, fp16, batched greedy generation, local
+> judges) with a harder design: per trait, 20 test and 20 held-out questions drawn from the extract and eval
+> pools, each with one of the trait's 5 instruction pairs at random, 256-token replies. It covers all seven
+> traits in `data_generation/trait_data_extract/`. Per model, a trait counts only if it has at least 4
+> eliciting test questions, so chance differs by model. Seed 52466129, 2026-11-19, single layer, cross-validated /
+> held out:
 >
-> | Model | Traits kept | Chance | Cosine (single layer) | RP-LSH 1024 | RP-LSH 256 |
+> | Model | Traits kept | Chance | Cosine | RP-LSH 1024 | RP-LSH 256 |
 > |---|---|---|---|---|---|
-> | Qwen2.5-7B-Instruct | 6 | 17% | 98.7% | 100% | 97.5% |
-> | Llama-3.1-8B-Instruct | 5 | 20% | 100% | 100% | 100% |
-> | Llama-3.1-Nemotron-Nano-8B-v1 | 4 | 25% | 100% | 98.1% | 100% |
-> | Qwen3-8B (thinking off) | 6 | 17% | 100% | 100% | 100% |
-> | Qwen3-8B (thinking on) | 7 | 14% | 99.0% | 99.0% | 99.0% |
-> | granite-4.2-8b | 5 | 20% | 95.2% | 97.6% | 97.6% |
-> | Nemotron-3.5-Bolt-E4B | 7 | 14% | 100% | 100% | 100% |
+> | Llama-3.1-8B-Instruct | 7 | 14% | 97.1% / 99.0% | 94.2% / 99.0% | 97.1% / 98.0% |
+> | Llama-3.1-Nemotron-Nano-8B-v1 | 4 | 25% | 100% / 100% | 100% / 100% | 100% / 100% |
+> | Qwen3-8B (thinking off) | 6 | 17% | 100% / 100% | 100% / 100% | 100% / 100% |
+> | granite-4.2-8b | 5 | 20% | 95.9% / 98.5% | 95.9% / 97.1% | 94.6% / 97.1% |
+> | Nemotron-3.5-Bolt-E4B | 7 | 14% | 98.3% / 99.2% | 99.1% / 99.2% | 96.6% / 95.9% |
 >
-> Layer sweep: the best single layer is at 66-80% of depth. Persona means transfer between Llama-3.1-8B and
-> Nemotron-Nano-8B, and between Qwen3-8B's thinking modes, at 100% in both directions. Elicitation varies by
-> model: Granite refuses `evil`, Nemotron-Nano gives no `sycophantic`, and `impolite` rarely elicits.
-> Caveats: one seed, 20 questions per trait, one instruction pair, a local judge that scores persona replies
-> lower than gpt-5.4.
+> Two earlier draws of the same design agree (98.2% / 97.4% over 7 runs including Qwen2.5-7B and Qwen3-8B with
+> thinking on, at 120 tokens; 95.9% / 99.1% over 4 runs), and the first pass with the published design (20
+> questions, one instruction pair) gave 99.3% over 8 runs.
+>
+> Layer sweep: the best single layer is at 59-71% of depth for most models. Persona means transfer between
+> Llama-3.1-8B and Nemotron-Nano-8B at 96-100% on the traits both express, and between Qwen3-8B's thinking
+> modes at 97-100%. Digest size: held out, 512 bits is within 0 to 1.5 points of exact cosine, depending on
+> the draw. Elicitation varies by model (Granite refuses `evil`, Nemotron-Nano gives almost no `sycophantic`)
+> and by instruction pair (`impolite` 8% to 68%). `impolite` is the weak trait: 87-88% correct.
+> Caveats: three draws under different judges' gates, about 8 questions per framing, local judges (96% and 94%
+> gate agreement with gpt-5.4), replies cut at 256 tokens, and questions that don't elicit still classify well
+> above chance, so the digest partly records the instruction.
 
 ## 2. Analysis on the captures already made (no GPU time)
 
-Each is a cell or section in `persona-lsh-results.ipynb` on the rig; the first three exist.
+Each is a section in `persona-lsh-results.ipynb`. Status as of 2026-11-20:
 
-- **a. Instruction or behavior** (results 7b). Classify the questions that did *not* elicit against the
-  eliciting means. If they classify as well as the eliciting ones, the vector records the instruction, not
-  the behavior. This decides how the monitoring claim is worded, and it is the most important open question.
-- **b. Magnitude vs elicitation** (results 7c). Spearman correlation between the projection on the persona
-  direction and the judge's score. This is the case for or against magnitude bits.
-- **c. Sign bits vs 2-bit codes at equal size** (results 7d, README direction 8). First pass: unit-vector
-  quartile buckets at 32-1024 bits. Then the real version, section 6.
-- **d. Minimum digest size.** The smallest 1-bit budget that holds 99% per model, with bootstrap intervals
-  over questions.
-- **e. Confidence intervals** on every accuracy, by bootstrap over questions. n is 42-114 per model.
+- **a. Instruction or behavior** (results 7b): **done, not settled.** Questions that did *not* elicit, classified
+  against the eliciting means: persona reply below 50, 77% / 65% / 74% correct on the three draws (chance
+  17-18%); refusals 53% / 35% / 36%. Results 9c adds a gradient on the latest draw: 99% where both judges see
+  the trait, 92-93% where one does, 57% where neither does. So the vector follows the behavior in part and the
+  instruction in part. The misses are mostly `evil` and `impolite`, where the failures are refusals and polite
+  replies. 3a decides the wording of the monitoring claim.
+- **b. Magnitude vs elicitation** (results 7c): **done.** Median Spearman ρ between the projection and the
+  judge's score is 0.46-0.50 over run x trait cells in all three draws; near 0 for traits that elicit nearly
+  always. Magnitude grades expression moderately where the trait varies.
+- **c. Sign bits vs multi-bit codes at equal size** (results 7d, README direction 8): **done** for 1, 2, 3, 4
+  and 8 bits per projection, angle-only and with magnitude, 16 to 131072 bits. Section 6 has the outcome.
+- **d. Minimum digest size:** **done** (results 7d, with bootstrap intervals). Pooled, 1-bit RP-LSH held out is
+  5.7% / 5.7% / 2.4% wrong at 128 bits and 2.6% / 2.4% / 0.9% at 512 on the three draws. Per model, 128-512
+  bits hold 98-99% where `impolite` isn't kept (Qwen3-8B, Nemotron-Nano); the runs that keep `impolite` stop at
+  cosine's own 98%, at any size. A minimum-size claim should be made per trait, with `impolite` apart.
+- **e. Confidence intervals** on every accuracy, by bootstrap over questions: **only 7d has them.** Still to do
+  for results sections 4-8, with one pooled analysis over the three draws under a single gate (gemma-qat scored the two
+  256-token draws; rand40 would need judging again).
 - **f. Beyond angular distance to the mean (future work).** A trait's vectors may form clusters and
   outliers, for example one cluster per framing, or a few questions the model half-adopts. A single mean
   hides that. Candidates, in rising cost:
@@ -128,6 +173,8 @@ Each is a cell or section in `persona-lsh-results.ipynb` on the rig; the first t
 
   Each needs to work on digests, not raw activations, to keep the privacy argument. Report them next to
   cosine and RP-LSH, with 7e's per-framing view.
+- **g. Does the judge change the classification** (results 9c): **done** on seed 52466129. No: section 1, item
+  10.
 
 ## 3. Controls and more data (GPU, 3 cards)
 
@@ -140,7 +187,8 @@ In order of what they settle:
      If the vector follows the text, the digest reads the words; if it follows the context, it reads the
      model's state.
 
-  Together with 2a, this says what the digest measures. Layer-1 accuracy of 83-99% makes it urgent.
+  Together with 2a, this says what the digest measures. **Not yet run, and now the first thing to run:** layer-1
+  accuracy is 80-96% with random framings, and 2a came back mixed.
 - **b+c. Drawn questions and random framings: the `rand40` design** (in `persona-lsh.ipynb` since
   2026-11-16, `EXPERIMENT = "rand40"`). Per trait, the extract and eval sets (20 + 20, no overlap) are pooled
   and shuffled into 20 **test** questions (CV and persona means) and 20 **eval** questions (held out,
@@ -159,11 +207,20 @@ In order of what they settle:
   - Limits: about 8 questions per framing per trait per model, so framing statistics are pooled over models,
     and framing is confounded with question. A fully crossed design (every question x all 5 framings, 5x
     cost) is the follow-up for the traits that vary.
-  - Still to do: replies from 120 to 256 tokens, to stop the truncation (README direction 6).
-- **d. OpenReasoning-Nemotron-7B** with `THINK_NEW_TOKENS = 4096`: about 9 hours.
+  - **Done three times:** `rand40` (seed 20261116, 7 runs), and at 256 tokens seeds 48213977 (4 runs) and
+    52466129 (5 runs). Classification, framing effects, geometry and per-model elicitation repeat (section 1).
+  - 256 tokens didn't stop the truncation (56-96% of replies still hit the cap) and changed the gate only for
+    Granite, which reasons before it answers. Not worth raising again for non-thinking models.
+  - Still to do at 256 tokens: Qwen2.5-7B and Qwen3-8B thinking (the rig question in section 0), so the
+    thinking off ↔ on transfer and the Qwen2.5 ↔ OpenReasoning pair have no 256-token data.
+  - The follow-up is the fully crossed design for `impolite` and `evil`, the two traits whose elicitation
+    varies most with framing (spread 0.32 and 0.21-0.24 in both 256-token draws).
+- **d. OpenReasoning-Nemotron-7B** with `THINK_NEW_TOKENS = 4096`: about 9 hours. Not run.
 - **e. Gemma-4-12B.** Check host RAM and overcommit (`free -g`, `vm.overcommit_memory`). Add swap, or skip it.
-- **f. A second judge.** gpt-5.4 on a 10% sample of the rig's replies, to calibrate gpt-oss. Or a local
-  ensemble with a second Ollama model, once the rig's Ollama is back.
+- **f. A second judge: done locally.** gemma-qat sets the gate and gpt-oss scores everything as the second
+  opinion (since 2026-11-19; nemotron-30b tried and dropped). Section 1, item 10 has the agreement. Still open:
+  gpt-5.4 on a 10% sample of the rig's own replies, since both local judges are calibrated only on the 240
+  published ones.
 - **g. With the 4th card:** 14B-class models in fp16 (for example Qwen3-14B).
 
 ## 4. Differential prompting (3 x 3), added to the persona tests
@@ -317,7 +374,21 @@ project's common salt, plus a plusRand offset.
 
 ## 6. Magnitude bits (README direction 8)
 
-The results notebook's 7d is the first pass. The full version:
+The results notebook's 7d is the first pass, on three draws (codes classified by L1 to a trait's mean of codes,
+at equal digest size):
+- 2-bit magnitude has the lowest error at 128-256 bits in every draw, about half a point under 1 bit (latest
+  draw, held out: 1.9% against 2.4% at 128 bits, 1.1% against 1.6% at 256). The gaps are inside the intervals.
+- 2-bit angle-only is 0.1-0.9 points behind 2-bit magnitude. 3 bits sits between 2 and 4, and 4 and 8 bits are
+  worse below about 1024 bits: a projection is worth more than a further distance bit.
+- At large sizes every code converges on exact cosine's error, within a few questions.
+- Whether the 2-bit gain comes from short vectors is unsettled: yes on seed 48213977, spread evenly on seed
+  52466129.
+- Costs before adopting it: the reference is a mean of codes, not a digest; the bucket edges need calibration
+  projections from the same model; and the distance bits carry expression strength (2b), which the sign digest
+  doesn't leak.
+
+So the case for 2 bits is a small, consistent gain against a real privacy and calibration cost. The full
+version, if it's still wanted:
 - A `QuantizedRandomProjectionBackend` in `lsh/`, subclassing `LSHBackend`: `B/2` hyperplanes x 2 bits,
   levels compared by L1, which is Hamming on a thermometer code.
 - **Two kinds of threshold:**
@@ -370,8 +441,10 @@ The results notebook's 7d is the first pass. The full version:
 |---|---|---|
 | Now | Rig back on 3 cards, Ollama units, judge without sudo | harness `ops/gpurig2/setup.md` part I |
 | Now | Back up `~/persona-lsh-output` and `~/gpu-telemetry` off the rig | rig |
-| Week 1 | Results 7b-7d on the rig; README section from section 1 | `experiments/` |
-| Weeks 1-2 | Controls 3a-3c, OpenReasoning at 4096 tokens | `experiments/` |
+| Done | Results 7b-7e, 9b, 9c; drawn design on three seeds (3b+c); local second judge (3f) | `experiments/`, results 11a-11d |
+| Next | Prompt-only and teacher-forced controls (3a), on the five models that run clean | `experiments/` |
+| Next | README section from section 1; intervals and the pooled analysis over draws (2e) | `experiments/`, README |
+| Then | Qwen3-8B thinking at 256 tokens; fully crossed `impolite` and `evil` (3b+c); OpenReasoning at 4096 tokens (3d) | `experiments/` |
 | Weeks 2-3 | Differential prompting, 3 models | `experiments/` |
 | Weeks 3-5 | OCEAN/HEXACO: part A, then parts B and C | `personality/persona-hexaco.ipynb` |
 | Next night | HEXACO second pass: scale reversal, sampling at 0.7 and 1.0, Granite rerun; then the trait cross-reference | `personality/` |

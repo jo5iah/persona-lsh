@@ -103,8 +103,8 @@ magnitude codes, with the privacy note on magnitude kept.
 (about 8 questions per framing, trait and model), local judges, reply budget (120 tokens in rand40, 256 in
 randX), fp16 on Pascal with batched greedy generation.
 
-**PLAN.md is out of date:** "Reportable now" item 6 ("almost no model will be impolite") is wrong, and the
-caveat "first instruction pair only" no longer holds. Update it with the README.
+**PLAN.md is current** (updated 2026-11-20): its "Reportable now" list and draft README section carry the
+drawn-design results. Write the README from them.
 
 **Data to publish:** the small outputs per experiment under `demo/output/` (no `.pt`): `experiment.json`,
 `selection.json`, `judge_scores.json`, `judges/*.json`, `eliciting_questions.json`, `accuracy.csv`,
