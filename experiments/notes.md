@@ -1,68 +1,80 @@
 # persona-lsh: notes for the README, the next experiment, and offline analysis
 
-Working notes (2026-11-17; status updated 2026-11-18). Written in the agent-harness repo and moved here with the
-notebooks on 2026-11-19. The README stays as it is until the randX run and its analysis are done. This file
+Working notes (2026-11-17; status updated 2026-11-20). Written in the agent-harness repo and moved here with the
+notebooks on 2026-11-19. The README stays as it is until the randX runs cover the missing models (section 0, open question 3). This file
 collects what will go there, and how to run and copy the data.
 
 agent-harness still holds what is specific to the rig: `configs/rig.yaml`, the judge (`harness.load_model_profile`,
 `harness.structured`), `ops/gpurig/` (telemetry, downloads, step loads), `ops/gpurig2/` (setup, power cap, history)
 and `lsh-models.md`. The notebooks reach it as the installed `harness` package.
 
-## 0. Where things stand (2026-11-18)
+## 0. Where things stand (2026-11-20)
 
-From the 2026-11-15 published-design run and the 2026-11-16 rand40 run (7 models, 5 families, 7 traits, gpt-oss
-judge), as analyzed in `persona-lsh-results.ipynb` section 11. randX (256 tokens, three judges) hasn't finished:
-card 0 dropped during its first model.
+Four experiments, each written up in `persona-lsh-results.ipynb` section 11:
+
+| | Experiment | Date | Runs | Replies | Gate |
+|---|---|---|---|---|---|
+| 11d | published design | 2026-11-15 | 8 (7 models) | 120 tokens | gpt-oss |
+| 11c | `rand40` | 2026-11-16 | 7 | 120 | gpt-oss |
+| 11b | randX `rand40-t256-s48213977` | 2026-11-18 | 4 (card 0 dropped after the fourth) | 256 | median of gpt-oss, nemotron-30b, gemma-qat |
+| 11a | randX `rand40-t256-s52466129` | 2026-11-19 | 5 (Llama, Granite, Bolt, Nemotron-Nano, Qwen3-8B thinking off) | 256 | gemma-qat, gpt-oss as second opinion |
+
+The 2026-11-19 run finished capture and judging in one 9.6-hour session with no card drop. Still without
+256-token data: Qwen2.5-7B, OpenReasoning-7B, Qwen3-8B thinking, Gemma-4-12B.
 
 ### Most conclusive
 
-1. **Persona vectors classify by nearest mean, across models and designs.** rand40, default layer, cosine: 98.2%
-   cross-validated and 97.4% on held-out eval questions, with random framings; chance 14-33%. The published
-   design gave 99.3%. It holds on 7 models from 5 families, with 3-7 traits kept per model.
-2. **RP-LSH keeps that signal at small sizes.** Held out, 512 bits (64 bytes) matches exact cosine; 256 bits
-   (32 bytes) costs about 1.3 points; error halves per doubling up to about 256 bits. The hash misses the same
-   questions cosine misses: the hashing isn't the limit.
-3. **Sign bits are the right code.** At equal digest size, 4 and 8 bits per projection are worse, 2 bits gain a
-   point at most (not significant held out), and keeping magnitude adds nothing to telling traits apart.
-4. **Persona means carry over within a family:** 97-100% between Llama-3.1-8B and Nemotron-Nano-8B, and between
-   Qwen3-8B's thinking modes, in both designs.
-5. **Elicitation depends on the instruction wording:** `impolite` 8% with instruction pair 0 (the only pair the
-   published design used) against 68% with pair 3; `evil` 2-75% across pairs. The published "models won't be
-   impolite" was the instruction, not the models.
-6. **Which traits a model will play is a stable per-model fingerprint:** Granite-4.2-8B refuses `evil` and
-   Nemotron-Nano-8B won't be `sycophantic`, in both designs.
-7. **One trait is the weak spot:** `impolite` read as `apathetic` is 22 of rand40's 24 misses, and `impolite`'s
-   framings point in different directions (cosine 0.35-0.61 between them). The other six traits are stable
-   across framings (0.69-0.89) and classify 94-100% under every framing.
-8. **The signal peaks at 59-71% of depth** for 5 of 7 models, which supports the 20/28 default layer.
+1. **Persona vectors classify by nearest mean, across models, designs and three draws.** Default layer, cosine,
+   cross-validated / held out: rand40 98.2% / 97.4%, seed 48213977 95.9% / 99.1%, seed 52466129 98.1% / 99.3%;
+   chance 14-33%. The published design gave 99.3%. 7 models from 5 families, 3-7 traits kept per model.
+2. **RP-LSH keeps that signal at small sizes, and its floor is exact cosine.** Held out, 512 bits (64 bytes) is
+   level with cosine in rand40, 0.2 points above on seed 52466129 and 1.5 above on seed 48213977. The excess
+   then shrinks as bits^-0.5 (11b), and the hash misses the same questions cosine misses.
+3. **Sign bits are close to the right code.** 2-bit magnitude had the lowest error at 128-256 bits in all three
+   draws, by about half a point, inside the intervals. 3, 4 and 8 bits per projection are worse at useful
+   sizes. The two magnitude-strata readings of 11b (the 2-bit gain is in the short vectors; long vectors hold
+   the last misses) didn't repeat in 11a.
+4. **The result doesn't rest on one judge** (11a, results 9c). Leave-one-out / held out: gemma-qat's gate 98.7% /
+   99.3%, gpt-oss's 98.8% / 99.2%. The two agree on the gate for 90% of 1,400 question pairs (κ 0.80), and the
+   questions only one of them passes still classify 92-93%. nemotron-30b is out (73% agreement with gpt-5.4).
+5. **Persona means carry over within a family** for the traits both models express: Llama-3.1-8B ↔
+   Nemotron-Nano-8B 96-100% on 3-4 shared traits in three experiments, 88-90% when three thin traits were kept
+   (11b). Qwen3-8B thinking off ↔ on 97-100% (11c, 11d).
+6. **Elicitation depends on the instruction wording, the same way in three draws:** `impolite` elicits most
+   with pair 3, `evil` most with pair 0 and least with pair 2 (`impolite` 8% with pair 0 against 68% with pair 3
+   in rand40). The published "models won't be impolite" was the instruction, not the models.
+7. **Which traits a model will play is a stable per-model fingerprint.** Granite-4.2-8B gives no `evil` and
+   Nemotron-Nano-8B almost no `sycophantic` in every experiment, and under the same judge the eliciting counts
+   per model repeat across seeds within 13 of 280 (gemma-qat: 201 / 99 / 146 / 239 against 214 / 96 / 150 / 238).
+8. **One trait is the weak spot:** `impolite` is 87-88% correct against 93-100% for the others, 0% under
+   instruction pair 4 in both randX draws, and its framings point in different directions (cosine 0.46-0.61
+   between them, 0.69-0.90 for the other six traits).
+9. **The signal peaks at 59-71% of depth** for most models (66-69% for four of five in 11a; Granite late, at
+   88%), which supports the 20/28 default layer.
+10. **A 256-token run can finish on the rig**, and 256 tokens changed the gate only for Granite (11b). 56-96%
+    of replies still hit the cap.
 
 ### Most pressing open questions
 
-1. **Can the rig finish a 256-token run?** It blocks everything below. Card 0 dropped at 150 W in randX's first
-   model, Qwen2.5-7B, as its hidden-state reads began. Every GPURig2 drop has been in Qwen2.5, which also always
-   runs first. 2026-11-18: the rig went offline again at the same point (Qwen2.5-7B, first trait `evil`), this
-   time with the CPU fan pegged. That run was meant to test ordering, but `ONLY` only filtered and the runs still
-   went in `RUNS` order, so Qwen2.5 ran first again. `ONLY` now sets the order. Running without Qwen2.5 (or
-   with it last) separates the model from "first heavy load"; the risers' SATA slot power is still the hardware
-   suspect.
-2. **Instruction or behavior?** Questions that failed the gate still classify 77% (chance 17%). Either the digest
-   records what the model was told to be, or the judge under-scores replies that show the trait. That decides
-   the monitoring claim. Settled by the prompt-only and teacher-forced controls (PLAN §3a), not yet run.
-3. **Words or state?** Layer 1 alone scores 81-90%, so the reply's vocabulary carries much of the signal. The
-   same controls answer it.
-4. **How much rests on one judge?** gpt-oss agrees with gpt-5.4 on the gate for 94% of 240 published replies but
-   scores persona replies 5-16 points lower. randX's three judges and section 9b answer whether accuracy and
-   eliciting counts hold under each judge.
-5. **One draw, framing confounded with question.** Every rand40 number comes from one seed, with about 8 questions
-   per framing, trait and model, and only 7d has intervals. Needed: 2-3 seeds of randX, and intervals on every
-   accuracy (PLAN §2e).
-6. **Does truncation matter?** 75-100% of rand40's replies hit 120 tokens. randX at 256 is the test.
-7. **Is `impolite` one trait?** Rude vs dismissive may be two directions: clusters per trait (PLAN §2f) and a
+1. **Instruction or behavior?** Questions that failed the gate still classify 65-77% (chance 17%). 11a adds a
+   gradient: 99% where both judges see the trait, 92-93% where one does, 57% where neither does. So the digest
+   follows the behavior in part and the instruction in part. Settled by the prompt-only and teacher-forced
+   controls (PLAN §3a), not yet run.
+2. **Words or state?** Layer 1 alone scores 80-96% (11a), so the reply's vocabulary carries much of the signal.
+   The same controls answer it.
+3. **The missing runs at 256 tokens:** Qwen2.5-7B, Qwen3-8B thinking (needed for the thinking off ↔ on transfer),
+   OpenReasoning-Nemotron-7B (needs 4096 thinking tokens) and Gemma-4-12B (host RAM).
+4. **Is the rig sound?** 11a ran clean without Qwen2.5-7B, but 11b's drop also came without it (card 0, Xid 79,
+   between models). Correctable PCIe errors from card 1 (bus 07:00.0) recur. `qwen2_5-lsh.ipynb` tests Qwen2.5
+   alone; the risers' SATA slot power is still the hardware suspect.
+5. **Intervals and pooling.** There are now three draws of the rand40 design, but under three different gates
+   and model sets, and only 7d has intervals. Needed: every accuracy with an interval, and one pooled analysis
+   over the draws under a single gate (gemma-qat scored 11a and 11b; rand40 would need judging again) (PLAN §2e).
+6. **Is `impolite` one trait?** Rude vs dismissive may be two directions: clusters per trait (PLAN §2f) and a
    fully crossed `impolite` design (every question with all 5 framings).
-8. **Magnitude as its own field?** Projection size tracks the judge's score moderately (median ρ 0.46), but adds
-   nothing to identification. Is an intensity field worth its privacy cost?
-9. **Coverage gaps:** OpenReasoning-Nemotron-7B (needs 4096 thinking tokens) and Gemma-4-12B (host RAM) aren't
-   in any run yet; adversarial prompts (README direction 5) are untested.
+7. **Magnitude as its own field?** Projection size tracks the judge's score moderately (median ρ 0.46-0.50 in
+   three experiments), and 2-bit magnitude buys about half a point. Is that worth its privacy cost?
+8. **Untested:** adversarial prompts (README direction 5).
 
 ## 1. README changes for persona-lsh (hold until randX is analyzed)
 
