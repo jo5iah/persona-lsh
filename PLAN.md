@@ -13,6 +13,9 @@ The SBIR Phase I deadline (2027-03-04, `../funding/NSF_PLAN.md`) sets the pace.
 `experiments/persona-lsh-results.ipynb` sections 11a-11d, and `experiments/notes.md` section 0 is the short
 status.
 
+**Updated 2026-11-20 (later)** with the first trait cross-reference run (a null; section 5) and `hexaco-lsh`,
+which is section 5's part B, prepared and not yet run.
+
 The runs happen from the notebooks in `experiments/` (`persona-lsh.ipynb` for capture, judge and analysis;
 `persona-lsh-results.ipynb` for the interpretation and graphs; in the agent-harness repo until 2026-11-19). They
 import this repo's `lsh/` and `demo/` code, and agent-harness for the judge and the rig's config and tooling. Raw outputs live on the rig only, in `~/persona-lsh-output` (about 9 hours of compute):
@@ -322,11 +325,45 @@ conditions are reused.
   out, so read low numbers as no signal.
 - Cost: about 10-11 h of capture and 3-4 h of judging.
 
-**Cross-reference with persona-lsh** (`personality/trait-crossref.ipynb`, CPU, not yet run on real data). It
-compares the 7 trait directions with the 6 factor directions per model. It needs no shared seed, only the same
-checkpoint, layer and vector kind. Priors to test: evil at low H and low A, sycophantic at low H and high A,
-impolite at low A. Digests use model-derived seeds (`lsh/seed.py`): a hash of the HF snapshot, salted with the
-project's common salt, plus a plusRand offset.
+**Cross-reference with persona-lsh, first run 2026-11-20** (`personality/trait-crossref.ipynb`, CPU). It compares
+persona-lsh's 7 trait directions (`rand40`: 120-token replies, gpt-oss gate) with the first run's 6 self-report
+factor directions (response vectors), per model, at 71% of depth. Five models: Bolt-E4B, Granite-4.2-8B,
+Llama-3.1-8B, Nemotron-Nano-8B, Qwen3-8B. It needs no shared seed, only the same checkpoint, layer and vector
+kind. Digests use model-derived seeds (`lsh/seed.py`), unsalted in this run.
+
+It is a null:
+1. **No cosine beats the null.** Of 174 trait-by-factor cells over the five models, none has permutation
+   p < 0.01. The pooled means are within ±0.09.
+2. **The priors are at chance.** 26 of 48 prior cells have the predicted sign (sign test p = 0.33). Only
+   optimistic (E up, N down, 5 of 5 models) and sycophantic with A (4 of 4) are consistent. Impolite with A has
+   the wrong sign in all four models that have it. Evil with H and with A, the headline pair, is flat (1 of 4
+   each).
+3. **No pattern shared across models.** The median Spearman rho between two models' cosine tables is +0.15.
+   Llama with Qwen3 is +0.73; Llama with Nemotron-Nano, the same architecture, is +0.31 on 18 cells.
+4. **Transfer to held-out answers is probably the one shared axis.** Projecting the eval items' answers on the
+   `sycophantic` direction gives rho +0.56 with the keyed A rating (A's own direction: +0.52), and `optimistic`
+   reads E at +0.44 (own: +0.20). But `sycophantic` reads every factor in the socially desirable direction (O, C,
+   E, A, H up, N down), and so does `impolite` (C +0.37, A +0.46, N -0.39), against its prior. That fits
+   point 4 of the first run above: the self-report answers vary along one axis, and some trait directions happen
+   to have a component on it. These cells have no null yet; they need one, and the agreement direction partialled
+   out, before they count.
+5. **The prompts lean on the factor directions more than on the trait directions.** "This profiling question"
+   against "this question": E +0.28, A -0.20. The largest lean on a trait is +0.14 ("right away" toward
+   `apathetic`). No null here either.
+6. **RP-LSH can't be judged on this.** Every cosine is below the digest's resolution, and there are no
+   significant cells to keep. The estimate's error matches theory: mean absolute error 0.08 at 256 bits and 0.04
+   at 1024, for an SD of pi x sqrt(1/(4n)) = 0.098 and 0.049. (The notebook's first version printed half that;
+   its source is fixed, its saved output isn't rerun.)
+7. **No depth where it works.** The layer with the most prior signs right is anywhere from 14% to 100% of depth
+   by model, at 73-83% of at most 11 cells: what the best of 32-42 noisy layers gives.
+
+Limits of this run:
+- **Granite is in it** with the first run's invalid self-report answers (thinking truncated), and has the largest
+  cosines (optimistic with O, +0.24). Rerun without it, or after `granite4.2-8b-nothink`.
+- The persona-lsh side is `rand40`, not a 256-token draw.
+- **The two libraries come from different contexts**: a one-digit self-rating with no system prompt, against a
+  120-token reply under a persona instruction. So the null doesn't separate "the traits are unrelated to the
+  factors" from "the two kinds of direction aren't comparable". Part B below is the test that does.
 
 **Items.**
 - The Big Five come from IPIP, the International Personality Item Pool, which is public domain. The
@@ -363,6 +400,35 @@ project's common salt, plus a plusRand offset.
 - The result is six factor directions with RP-LSH digests, a personality library next to the 7-trait one.
 - Expected geometry: N opposed to E and C, H related to A (r = .41 between the IPIP-HEXACO scales), and the
   evil direction near low H and low A.
+
+**Part B prepared, 2026-11-20: `personality/hexaco-lsh.ipynb`** (commit f8a69eb, not yet run). It is
+`experiments/persona-lsh.ipynb` with the traits swapped and nothing else changed: the draw (20 test + 20 eval
+questions, a random instruction pair each), capture, the gemma-qat gate with gpt-oss as the second opinion,
+classification by cosine and RP-LSH, layer sweep, pair transfer. Experiment `rand40-t256-s68853742`, in
+`~/hexaco-lsh-output/`, on the five models of the last persona-lsh run.
+- **Trait data** (`personality/trait_data_extract/`, `trait_data_eval/`), in the shape the persona vectors paper
+  generates per trait: 5 instruction pairs (high pole, low pole; each pair on different facets), 40 questions,
+  one judge rubric on the paper's template. More than the "about 20" above, to match persona-lsh.
+- **Big Five questions** are situations in which an IPIP-NEO-120 item's behavior could show, without naming the
+  trait. Each of a factor's 24 items is behind one or two questions, 6-7 per facet, every facet in both sets
+  (`basis` in each file).
+- **Honesty-Humility questions** are written from the four facet definitions, 10 each, and use no inventory
+  text: neither HEXACO-PI-R's nor IPIP-HEXACO's. So the license question above doesn't touch this notebook.
+- **They are candidates.** I wrote them by hand, not with the paper's generator prompt, and nobody has reviewed
+  them.
+- What may bite:
+  - For C, A, H and low N, *with* is near what these models do unprompted and *without* is the instructed
+    departure, the reverse of persona-lsh. The gate is unchanged.
+  - The low poles of A and H ask for hostile or dishonest replies. A refusal fails the gate, as `evil` did on
+    Granite.
+  - The judges were checked against gpt-5.4 on the seven persona-lsh rubrics, not on these six. The evidence
+    here is the agreement of the two judges.
+- Questions for the run: are both poles elicited; are the six factors separable by nearest mean (the self-report
+  directions leaked at 0.5-1.0); which get confused (A with H is the predicted pair); does RP-LSH keep it.
+- **Then the cross-reference again**, with these directions as the factor side (`trait-crossref.ipynb`,
+  `FACTOR_SOURCE = "hexaco-lsh"`). Both sides are then *with minus without* means over open replies from one
+  procedure. The self-report run stays in as the third leg: do the behavioral factor directions read the
+  held-out inventory answers (part C)?
 
 **Part C, the join.**
 - Capture hidden states while each model answers the Likert items under the 9 conditions, with no persona
@@ -447,7 +513,9 @@ version, if it's still wanted:
 | Then | Qwen3-8B thinking at 256 tokens; fully crossed `impolite` and `evil` (3b+c); OpenReasoning at 4096 tokens (3d) | `experiments/` |
 | Weeks 2-3 | Differential prompting, 3 models | `experiments/` |
 | Weeks 3-5 | OCEAN/HEXACO: part A, then parts B and C | `personality/persona-hexaco.ipynb` |
-| Next night | HEXACO second pass: scale reversal, sampling at 0.7 and 1.0, Granite rerun; then the trait cross-reference | `personality/` |
+| Done | Trait cross-reference on the first HEXACO run: a null (section 5) | `personality/trait-crossref.ipynb` |
+| Next night | `hexaco-lsh`: the six factors with and without, five models (section 5 part B); then the cross-reference with its directions | `personality/hexaco-lsh.ipynb` |
+| Next night | HEXACO second pass: scale reversal, sampling at 0.7 and 1.0, Granite rerun | `personality/` |
 | After that | OpenReasoning-Nemotron-7B as the Qwen2.5 drop test (same architecture, other weights) | `experiments/`, harness `ops/gpurig2/` |
 | Weeks 3-5 | 2-bit backend and library capacity (CPU) | this repo `lsh/` |
 | Weeks 5-8 | Constitution bounds | `experiments/constitution-lsh.ipynb` |
@@ -458,6 +526,8 @@ version, if it's still wanted:
 - The exact six texts of the earlier differential prompts, and which DAN version.
 - IPIP-NEO-120 or -300 (five-factor-e has both): which one the earlier study used. (The first run used -120;
   its findings on INFO and DAN didn't reproduce, so the earlier study's exact setup matters for the comparison.)
+- The `hexaco-lsh` questions and instruction pairs (`personality/trait_data_*/`) are candidates: read them before
+  the run, or after a first run shows which ones don't elicit.
 - The Cisco constitutional-alignment paper: title or link.
 - Open-sourcing: the README results above are a public claim, while SBIR wants an edge (`NSF_PLAN.md`
   "Decision needed").
