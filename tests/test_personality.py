@@ -179,3 +179,33 @@ def test_sample_seed_and_leave_one_out():
     assert len(splits) == 3
     train, test = splits[0]                                       # item 3 out, both of its answers
     assert test.tolist() == [True, False, True, False, False] and (train == ~test).all()
+
+
+TRAIT_FACTOR = {"openness": "O", "conscientiousness": "C", "extraversion": "E", "agreeableness": "A",
+                "neuroticism": "N", "honesty-humility": "H"}
+
+
+@pytest.mark.parametrize("trait,factor", TRAIT_FACTOR.items())
+def test_hexaco_lsh_trait_data_matches_persona_lsh_format(trait, factor):
+    # hexaco-lsh.ipynb's trait data: 5 instruction pairs, 20 + 20 distinct questions, a judge rubric with both
+    # placeholders, and for the Big Five every IPIP-NEO-120 item of the factor behind at least one question.
+    root = Path(__file__).resolve().parents[1] / "personality"
+    sets = {s: json.loads((root / f"trait_data_{s}" / f"{trait}.json").read_text()) for s in ("extract", "eval")}
+    assert sets["extract"]["instruction"] == sets["eval"]["instruction"]
+    assert sets["extract"]["eval_prompt"] == sets["eval"]["eval_prompt"]
+    questions, basis = [], []
+    for data in sets.values():
+        assert data["factor"] == factor
+        assert len(data["instruction"]) == 5 and all(set(p) == {"pos", "neg"} for p in data["instruction"])
+        assert len(data["questions"]) == len(data["basis"]) == 20
+        assert "{question}" in data["eval_prompt"] and "{answer}" in data["eval_prompt"]
+        questions += data["questions"]
+        basis += data["basis"]
+    assert len(set(questions)) == 40
+    items = {i.number: i for i in hx.ipip_items() if i.factor == factor}
+    if factor == "H":
+        assert all(b["ipip"] is None for b in basis)
+        assert Counter(b["facet"] for b in basis) == Counter({f: 10 for f, _ in hx.HEXACO_H_KEY.values()})
+    else:
+        assert {b["ipip"] for b in basis} == set(items)
+        assert all(items[b["ipip"]].facet == b["facet"] for b in basis)

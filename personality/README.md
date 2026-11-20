@@ -8,6 +8,8 @@ answers 136 inventory items under nine prompts, and every answer's hidden states
 | `persona-hexaco.ipynb` | Capture and ratings, on the rig (gpu kernel). Resumable |
 | `persona-hexaco-results.ipynb` | The analysis and its figures, in the layout of `../experiments/persona-lsh-results.ipynb`. No card needed (CPU torch) |
 | `trait-crossref.ipynb` | persona-lsh's 7 trait directions against the 6 factor directions, per model: cosines against a permutation null, the literature's priors, transfer to held-out answers, prompt lean, RP-LSH with model-derived seeds (`lsh/seed.py`), layer sweep. CPU only; reads both output directories |
+| `hexaco-lsh.ipynb` | The six factors as persona traits, the persona-lsh way: replies with and without each factor, judged, classified by cosine and RP-LSH. `../experiments/persona-lsh.ipynb` with the traits swapped. On the rig (gpu kernel), writes to `~/hexaco-lsh-output/`. Not run yet |
+| `trait_data_extract/`, `trait_data_eval/` | Its trait data in persona-lsh's format: per factor 5 instruction pairs (high pole, low pole), 20 + 20 questions and a judge rubric. Big Five questions are situations built on the IPIP-NEO-120 items (`basis` gives item and facet); honesty-humility's are written from its four facet definitions. Candidates, not yet reviewed |
 | `hexaco.py` | Items, keying, the train/eval draw, the prompts, rating parsing, scoring, vector math |
 | `ipip_neo_120.json` | The IPIP-NEO-120 items with factor, facet and keying |
 | `../tests/test_personality.py` | Offline tests of `hexaco.py` |
