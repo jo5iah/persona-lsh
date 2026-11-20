@@ -78,6 +78,10 @@ The 2026-11-19 run finished capture and judging in one 9.6-hour session with no 
 
 ## 1. README changes for persona-lsh (hold until randX is analyzed)
 
+**Done 2026-11-20:** the README has the "Expanded run" section, with the digest-size curve from results 7d
+(`experiments/figures/`). Not in it yet: the per-model smallest digest for 98% and 99% as a table, intervals on
+the accuracy table, and the published data files below. The list is kept as the checklist.
+
 **Add an "Expanded run" section, with the drawn design as the headline.**
 - A table per model: kept traits, chance, cross-validated and held-out cosine, RP-LSH at 1024 and 256 bits,
   with 95% intervals (results 7d). The 2026-11-15 published-design run gets one line as the first pass.

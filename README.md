@@ -12,6 +12,7 @@
 - **`demo/expanded_analyze.py`** — 3-fold cross-validation over the eliciting questions across {`single layer 20`, `multi top-N by coherence`, `all layers`} × {`cosine projection`, `RP-LSH`}. Produces an accuracy table, per-strategy confusion matrices, and a full per-fold-per-test JSON.
 - **`demo/bench.py`** — pluggable side-by-side LSH-backend comparison on saved persona vectors (no model re-run required). Add a new `LSHBackend` subclass + one row to `backend_specs` and it slots in.
 - **`demo/run_demo.py`** / **`paper_eval.py`** — quick visual demo (3 questions per trait) and a simpler 5-train / 2-test paper-style split, both using RP-LSH.
+- **`experiments/`** — the rig notebooks behind the [expanded run](#expanded-run-seven-traits-drawn-questions-digest-size): seven traits, drawn questions and framings, local judges, a layer sweep, transfer between related models, and accuracy against digest size for 1 to 8 bits per projection.
 - **`tests/`** — 33 pytest cases pinning the LSH backend interface, the RP angular-equivalence property, the judge's score parser, and the persona-vector extraction helpers.
 
 ## The experiment
@@ -132,6 +133,66 @@ OPENAI_API_KEY=... python demo/expanded_collect.py --judge_only --model google/g
 python demo/expanded_analyze.py --data_dir demo/output/expanded/google__gemma-2-9b-it --multi_n 5 --rp_bits 1024
 ```
 
+## Expanded run: seven traits, drawn questions, digest size
+
+The experiment above ran again on a local rig (3x GTX 1080 Ti, fp16, batched greedy generation, local judges) with a harder design, on newer models. The notebooks are in [`experiments/`](experiments/); `experiments/persona-lsh-results.ipynb` section 11 has the full write-up of each run, and its saved outputs are the record for the numbers below.
+
+**Design** (`rand40`):
+
+| Dimension | Value |
+|---|---|
+| Traits | all seven in `data_generation/trait_data_extract/`: `evil, hallucinating, sycophantic, apathetic, humorous, impolite, optimistic` |
+| Questions per trait | 40, drawn from the extract and eval pools: 20 **test** (persona means, cross-validation) and 20 **held out** (classified against means built from the test questions alone). The same draw for every model |
+| Framing | one of the trait's 5 instruction pairs at random per question (the runs above use the first pair only) |
+| Generation | greedy, batch 8, `max_new_tokens=256`, fp16 |
+| Elicitation judges | local: `gemma4:12b-it-qat` sets the gate (`pos ≥ 50 ∧ neg < 50`), `gpt-oss:20b` scores everything as a second opinion |
+| Kept traits | a trait counts for a model only with at least 4 eliciting test questions, so chance differs by model |
+
+**Result**, latest draw (seed 52466129, 2026-11-19), single layer, cross-validated / held out:
+
+| Model | Traits kept | Chance | cosine | RP-LSH (1024 bits) | RP-LSH (256 bits) |
+|---|---|---|---|---|---|
+| Llama-3.1-8B-Instruct | 7 | 14% | 97.1% / 99.0% | 94.2% / 99.0% | 97.1% / 98.0% |
+| Llama-3.1-Nemotron-Nano-8B-v1 | 4 | 25% | 100% / 100% | 100% / 100% | 100% / 100% |
+| Qwen3-8B (thinking off) | 6 | 17% | 100% / 100% | 100% / 100% | 100% / 100% |
+| granite-4.2-8b | 5 | 20% | 95.9% / 98.5% | 95.9% / 97.1% | 94.6% / 97.1% |
+| Nemotron-3.5-Bolt-E4B | 7 | 14% | 98.3% / 99.2% | 99.1% / 99.2% | 96.6% / 95.9% |
+
+Pooled over the five models, cosine classifies 413 of 421 test questions in cross-validation (98.1%) and 400 of 403 held-out questions (99.3%); RP-LSH at 1024 bits 97.6% and 99.0%. Two earlier draws of the same design agree: 98.2% / 97.4% over 7 runs at 120 tokens (including Qwen2.5-7B and Qwen3-8B with thinking on), and 95.9% / 99.1% over 4 runs at 256 tokens. A first pass with the design of the sections above (20 questions, one instruction pair, seven traits) gave 99.3% over 8 runs.
+
+### Accuracy against digest size
+
+![Misclassified share against digest size, 16 bits to 16 KiB, for 1 to 8 bits per projection, leave-one-out and held out](experiments/figures/digest-size-rand40-t256-s52466129.png)
+
+*Misclassified share against digest size, pooled over the five models of the latest draw, at the default single layer. Top: leave-one-out over 824 eliciting questions. Bottom: 403 held-out questions. Left: codes that keep only the angle. Right: codes that also keep the vector's magnitude. Bands are bootstrap 95% intervals; the dash-dotted line is exact cosine. The reference is the digest of the trait's mean vector, except "1 bit, centroid" (the mean of the trait's training digests) and the multi-bit codes (L1 distance to the mean of codes).*
+
+| Digest (1 bit per projection) | 64 bits (8 B) | 128 (16 B) | 256 (32 B) | 512 (64 B) | 1024 (128 B) | 2048 (256 B) | exact cosine |
+|---|---|---|---|---|---|---|---|
+| Correct, leave-one-out | 93.8% | 96.5% | 97.6% | 98.2% | 98.2% | 98.5% | 98.7% |
+| Correct, held out | 93.5% | 97.6% | 98.4% | 99.1% | 99.2% | 99.2% | 99.3% |
+
+- **The floor of RP-LSH is exact cosine, and the curve reaches it.** As the digest grows, the share of differing sign bits tends to angle / π, so the hash tends to the nearest mean by cosine. What's left at the floor is the signal: questions cosine misses too.
+- **Error about halves with each doubling up to 256 bits, then flattens.** Held out, a 64-byte digest is within 0.2 points of cosine on this draw (level with it on the first draw, 1.5 points above on the second). Past that the excess shrinks roughly as bits^-0.5: each further point costs 4 to 16 times the bytes.
+- **Sign bits are close to the right code** ([unexplored direction 8](#unexplored-directions)). At equal digest size, 2 bits per projection with magnitude has the lowest error at 128-256 bits in all three draws, by about half a point and inside the intervals. 3, 4 and 8 bits per projection are worse at useful sizes: below about 1024 bits a further projection is worth more than a further distance bit. The magnitude codes also carry how strongly the trait is expressed, which the sign digest doesn't leak.
+- **Per model, the size needed follows one trait.** Where `impolite` isn't kept (Qwen3-8B, Nemotron-Nano), 128-512 bits hold 98-99%. The models that keep it stop near cosine's own 98% at any size.
+
+### What else the runs show
+
+- **Layer sweep** ([direction 2](#unexplored-directions)). The best single layer is at 59-71% of depth for most models, which supports the `round(num_hidden_layers * 20/28)` default. Layer 1 already scores 80-96%, so the replies' words carry much of the signal.
+- **Transfer within a family.** Persona means from Llama-3.1-8B classify Nemotron-Nano-8B's questions, and the reverse, at 96-100% on the traits both express; Qwen3-8B with thinking off and on, 97-100%. One fingerprint library can serve a model, its fine-tunes and its thinking modes.
+- **The judge doesn't change the result** ([direction 6](#unexplored-directions)). Against `gpt-5.4` on the 240 published replies, gemma-qat lands on the same side of 50 for 96% and gpt-oss for 94%. On the latest draw the two agree on the gate for 90% of 1,400 question pairs (κ 0.80), accuracy is the same under either gate (98.7% and 98.8% leave-one-out), and the questions only one of them passes still classify 92-93%.
+- **Elicitation depends on the model and on the instruction wording.** Granite-4.2-8B gives no `evil` in any run, and Nemotron-Nano-8B almost no `sycophantic` (7 of 40 on the latest draw) where its base Llama-3.1-8B gives 33. On the first draw `impolite` elicited 8% of the time with the first instruction pair and 68% with the fourth, and `evil` 75% with the first and 2% with the third; the same pairs are strongest and weakest in the later draws.
+- **`impolite` is the weak trait:** 87-88% correct against 93-100% for the other six, with most misses read as `apathetic` or `evil`. Its five framings point in different directions (cosine 0.46-0.61 between them, 0.69-0.90 for the other traits).
+
+### Limits
+
+- Three draws, but under three different gates and model sets. Only the digest-size curves have intervals.
+- About 8 questions per framing, trait and model, so framing is confounded with question.
+- Local judges, checked against `gpt-5.4` only on the published replies.
+- 56-96% of replies hit the 256-token cap.
+- **The digest partly records the instruction.** Questions that fail the gate still classify 65-77% against the eliciting means (chance 17%), and 57% where neither judge sees the trait. Until the prompt-only control runs ([`PLAN.md`](PLAN.md) section 3a), the claim is "detects what the model was steered toward".
+- The rig's raw outputs (`~/persona-lsh-output`) aren't in this repo.
+
 ## How to reproduce
 
 ### 1. Environment
@@ -221,6 +282,8 @@ persona_vectors/
 │   ├── paper_eval.py        # 5-train / 2-test split
 │   ├── output/              # runtime artifacts (small JSONs tracked; .pt gitignored)
 │   └── README.md
+├── experiments/             # rig notebooks: capture, judging, results and figures (expanded run)
+├── personality/             # HEXACO series (see PLAN.md section 5)
 ├── tests/                   # 33 pytest cases
 ├── data_generation/         # trait JSONs (unchanged from upstream)
 ├── lsh_proposal.md          # 3-page industry-standard proposal
@@ -229,23 +292,23 @@ persona_vectors/
 
 ## Unexplored directions
 
-The current experiment is one model, three traits, and a single judge. Several extensions would strengthen the result substantially:
+The first experiment was one model, three traits, and a single judge. Several extensions would strengthen the result substantially; four are now done or partly done:
 
 1. **Cross-architecture validation**. ✅ Done for `meta-llama/Llama-3.1-8B-Instruct`, `mistralai/Mistral-7B-Instruct-v0.3`, and `google/gemma-2-9b-it` — see [Cross-architecture validation](#cross-architecture-validation) above: cosine accuracy is 100% for all three layer strategies on all four models tested (Qwen2.5-7B plus these three), and RP-LSH at 1024 bits matches or comes within one misclassification of that baseline in every case. The angular structure RP-LSH relies on generalizes across at least four attention architectures, RLHF lineages, and tokenizers — including one (Gemma-2) that required a chat-template fix since its instruction format has no `system` role.
 
-2. **Layer-by-layer single-layer sweep**. We tested `{single L=20, multi top-5, all-28}`. Running `expanded_analyze.py` with `--single_layer L` for every `L ∈ [0, 28]` would produce a per-layer accuracy curve and identify (a) the persona-vector "active region" empirically rather than via the coherence heuristic, (b) any layers where the classification fails — useful for understanding the geometry of trait representation depth-by-depth.
+2. **Layer-by-layer single-layer sweep**. ✅ Done on every rig run — see [What else the runs show](#what-else-the-runs-show): the best layer is at 59-71% of depth for most models, and accuracy is already 80-96% at layer 1. The original note: we tested `{single L=20, multi top-5, all-28}`. Running `expanded_analyze.py` with `--single_layer L` for every `L ∈ [0, 28]` would produce a per-layer accuracy curve and identify (a) the persona-vector "active region" empirically rather than via the coherence heuristic, (b) any layers where the classification fails — useful for understanding the geometry of trait representation depth-by-depth.
 
-3. **Cross-trait fingerprint library**. The persona-vectors paper catalogues seven traits in `data_generation/trait_data_extract/` (the four traits we did not test: `apathetic, humorous, impolite, optimistic`). A larger library is a step toward the "known-bad fingerprints" idea from the proposal.
+3. **Cross-trait fingerprint library**. ✅ Done for all seven traits — see [Expanded run](#expanded-run-seven-traits-drawn-questions-digest-size); `impolite` is the weak one. The original note: the persona-vectors paper catalogues seven traits in `data_generation/trait_data_extract/` (the four traits we did not test: `apathetic, humorous, impolite, optimistic`). A larger library is a step toward the "known-bad fingerprints" idea from the proposal.
 
 4. **Alternative LSH families**. RP-LSH preserves angular distance and was a clean fit; other LSH variants (MinHash for Jaccard similarity over sparse features; hyperplane LSH with learned planes; learned LSH like LISA) may have different privacy/accuracy tradeoffs. The `LSHBackend` ABC is designed to make these drop-in: subclass + register in `backend_specs`.
 
 5. **Adversarial robustness**. Our setup measures discrimination among trait-conditioned activations elicited by cooperating system prompts. The harder question is whether persona-vector LSH digests survive *adversarial* prompts — jailbreaks, prompt injection through retrieved documents — that try to either disguise or impersonate a persona direction.
 
-6. **More questions, better elicitation**. Going from 20 to 100+ questions per trait, and replacing the single-pass `gpt-5.4` judge with multi-judge ensemble or human review, would tighten confidence intervals and likely surface the failure modes the small 39-test-case bench cannot.
+6. **More questions, better elicitation**. Partly done: 40 questions per trait with a held-out half, five instruction pairs, and two local judges whose gates give the same accuracy. Still open: 100+ questions, intervals on every accuracy, and human review. The original note: going from 20 to 100+ questions per trait, and replacing the single-pass `gpt-5.4` judge with multi-judge ensemble or human review, would tighten confidence intervals and likely surface the failure modes the small 39-test-case bench cannot.
 
 7. **Live deployment**. The downstream payoff of all of the above is the proposal in `lsh_proposal.md`: emit the RP-LSH digest as part of every API response. A reference implementation against vLLM or TGI, plus a fingerprint-library comparator, would close the loop from research artifact to production-ready alignment telemetry.
 
-8. **2-bit quantized projections**. RP-LSH keeps only the sign of each projection (1 bit per hyperplane). In TLSH design work ([Oliver & Hagen, *Designing the Elements of a Fuzzy Hashing Scheme*, IEEE EUC 2021](https://ieeexplore.ieee.org/document/9742168/)), 2-bit bucket vectors outperformed 1-bit. The analogous test here is a 2-bit projection (sign + magnitude bucket) at the same byte budget — e.g. 512 hyperplanes × 2 bits vs 1024 × 1 bit — measuring classification accuracy, and fingerprint-library capacity/interference as more trait or user-defined directions are added. Note that magnitude bits leak more than angle alone, so the privacy argument in `lsh_proposal.md` would need to be re-checked.
+8. **2-bit quantized projections**. First answer in [Accuracy against digest size](#accuracy-against-digest-size): 2 bits with magnitude gains about half a point at 128-256 bits, inside the intervals, and more bits per projection are worse. Library capacity and the privacy re-check are still open. The original note: RP-LSH keeps only the sign of each projection (1 bit per hyperplane). In TLSH design work ([Oliver & Hagen, *Designing the Elements of a Fuzzy Hashing Scheme*, IEEE EUC 2021](https://ieeexplore.ieee.org/document/9742168/)), 2-bit bucket vectors outperformed 1-bit. The analogous test here is a 2-bit projection (sign + magnitude bucket) at the same byte budget — e.g. 512 hyperplanes × 2 bits vs 1024 × 1 bit — measuring classification accuracy, and fingerprint-library capacity/interference as more trait or user-defined directions are added. Note that magnitude bits leak more than angle alone, so the privacy argument in `lsh_proposal.md` would need to be re-checked.
 
 ## Citing the upstream work
 
