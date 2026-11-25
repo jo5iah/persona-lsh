@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import personality.hexaco as hx  # noqa: E402
+import experiments.hexaco as hx  # noqa: E402
 
 
 def hexaco_file(tmp_path):
@@ -189,7 +189,7 @@ TRAIT_FACTOR = {"openness": "O", "conscientiousness": "C", "extraversion": "E", 
 def test_hexaco_lsh_trait_data_matches_persona_lsh_format(trait, factor):
     # hexaco-lsh.ipynb's trait data: 5 instruction pairs, 20 + 20 distinct questions, a judge rubric with both
     # placeholders, and for the Big Five every IPIP-NEO-120 item of the factor behind at least one question.
-    root = Path(__file__).resolve().parents[1] / "personality"
+    root = Path(__file__).resolve().parents[1] / "experiments"
     sets = {s: json.loads((root / f"trait_data_{s}" / f"{trait}.json").read_text()) for s in ("extract", "eval")}
     assert sets["extract"]["instruction"] == sets["eval"]["instruction"]
     assert sets["extract"]["eval_prompt"] == sets["eval"]["eval_prompt"]

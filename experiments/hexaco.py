@@ -1,6 +1,8 @@
 """Personality inventory tests for models: IPIP-NEO-120 (Big Five) plus HEXACO Honesty-Humility.
 
-The pure parts of `personality/persona-hexaco.ipynb` and `persona-hexaco-results.ipynb`: the items and their
+The pure parts of the `persona-hexaco` notebooks (dropped 2026-11-24, in git history; PLAN.md section 5 has their
+results). Still used: the IPIP-NEO-120 items and the Honesty-Humility facets, which the hexaco-lsh trait data is
+checked against (tests/test_personality.py). The rest is that study's: the items and their
 keying, the train/eval draw, the 3 x 3 differential prompts (DAN x INFO), reading a 1-5 rating out of a
 reply, factor scores, and the vector math of the analysis (numpy only, so it runs without torch).
 

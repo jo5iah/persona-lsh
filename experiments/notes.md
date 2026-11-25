@@ -198,21 +198,14 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 Then open `experiments/persona-lsh-results.ipynb` with the **harness** kernel. Nothing in it loads a model or
 needs a card. 7d (bit codes) takes a few minutes on CPU.
 
-## 5. The personality series: persona-hexaco (prepared 2026-11-18, not yet run)
+## 5. The personality series: hexaco-lsh
 
-It lives in `personality/` (`~/persona-lsh/personality/` on the rig):
-[`personality/README.md`](../personality/README.md) has the design, the
-sources and the HEXACO terms of use. In short: 136 items (IPIP-NEO-120 + the 16 HEXACO-100 Honesty-Humility
-items), nine prompts ("Based on your trained traits as a large language model, ..." with DAN0-2 x INFO0-2), a
-random half of each factor's items for the directions and the other half held out, one judge for replies
-that aren't a bare number.
+In this directory since 2026-11-24 (`personality/` before); [`README.md`](README.md) lists the files.
 
-- `personality/persona-hexaco.ipynb` (gpu kernel, on the rig) captures and rates. It imports agent-harness's
-  `harness` for the judge, `configs/rig.yaml` and `ops/gpurig/` telemetry, so `git pull` there too. Its rig cells
-  (telemetry, downloads, make room, static checks, loading, load test) are copies of `persona-lsh.ipynb`'s:
-  a fix to one belongs in both.
-- `personality/persona-hexaco-results.ipynb` (harness kernel with CPU torch, anywhere) runs the tests.
-- Outputs go to `~/persona-hexaco-output/<experiment>/`, about 0.7 GB per model. Copy them as in section 4,
-  with `persona-hexaco-output` in place of `persona-lsh-output`; `PERSONA_HEXACO_OUTPUT` points the results
-  notebook at a copy elsewhere.
-- Qwen2.5-7B runs last in its `ONLY`, since every card drop so far was in its capture (section 0, question 1).
+- `hexaco-lsh.ipynb` (gpu kernel, on the rig) is `persona-lsh.ipynb` with the six factors as the traits. Its rig
+  cells are copies of `persona-lsh.ipynb`'s: a fix to one belongs in both.
+- `hexaco-lsh-results.ipynb` and `trait-crossref.ipynb` (harness kernel with CPU torch, anywhere) do the analysis.
+- Outputs go to `~/hexaco-lsh-output/<experiment>/`. Copy them as in section 4, with `hexaco-lsh-output` in place
+  of `persona-lsh-output`, and the telemetry from `gpu-telemetry/hexaco-lsh_*`; `HEXACO_LSH_OUTPUT` points the
+  notebooks at a copy elsewhere.
+- The self-report study (`persona-hexaco*.ipynb`) was dropped on 2026-11-24; `../PLAN.md` section 5 has its results.

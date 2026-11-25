@@ -282,8 +282,8 @@ persona_vectors/
 │   ├── paper_eval.py        # 5-train / 2-test split
 │   ├── output/              # runtime artifacts (small JSONs tracked; .pt gitignored)
 │   └── README.md
-├── experiments/             # rig notebooks: capture, judging, results and figures (expanded run)
-├── personality/             # HEXACO series (see PLAN.md section 5)
+├── experiments/             # rig notebooks: capture, judging, results and figures (expanded run), and the
+│                            #   HEXACO series (hexaco-lsh, trait cross-reference; PLAN.md section 5)
 ├── tests/                   # 33 pytest cases
 ├── data_generation/         # trait JSONs (unchanged from upstream)
 ├── lsh_proposal.md          # 3-page industry-standard proposal
