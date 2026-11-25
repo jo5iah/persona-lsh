@@ -19,8 +19,11 @@ which is section 5's part B, prepared and not yet run.
 **Updated 2026-11-24** with the first `hexaco-lsh` run (section 5 part B: the six factors separate at 94-96%).
 `personality/` is now part of `experiments/`. The self-report notebooks (`persona-hexaco.ipynb`,
 `persona-hexaco-results.ipynb`) were dropped: their results stay in section 5, the notebooks are in git history
-(last at commit `b5bfd51`). `trait-crossref.ipynb` was rebuilt for hexaco-lsh's factor directions and hasn't run
-yet.
+(last at commit `b5bfd51`). `trait-crossref.ipynb` was rebuilt for hexaco-lsh's factor directions.
+
+**Updated 2026-11-25** with `hexaco-lsh-results` and the rebuilt cross-reference, both run on the 2026-11-24
+experiment (section 5 part B). The cross-reference is no longer a null: 48 of 49 prior signs, the same pattern
+in every model. Next for this series is fixing the trait data, a control library and a second draw (section 8).
 
 The runs happen from the notebooks in `experiments/` (`persona-lsh.ipynb` for capture, judge and analysis;
 `persona-lsh-results.ipynb` for the interpretation and graphs; in the agent-harness repo until 2026-11-19). They
@@ -436,8 +439,8 @@ classification by cosine and RP-LSH, layer sweep, pair transfer. Experiment `ran
 - **Then the cross-reference again**, with these directions as the factor side (`trait-crossref.ipynb`). Both
   sides are then *with minus without* means over open replies from one procedure.
 
-**Part B, first run 2026-11-24** (`rand40-t256-s68853742`; numbers from `hexaco-lsh.ipynb`'s saved outputs, written
-up in `experiments/hexaco-lsh-results.ipynb` section 11a). Llama-3.1-8B, Granite-4.2-8B, Bolt-E4B,
+**Part B, first run 2026-11-24** (`rand40-t256-s68853742`; written up in
+`experiments/hexaco-lsh-results.ipynb` section 11a, run 2026-11-25). Llama-3.1-8B, Granite-4.2-8B, Bolt-E4B,
 Nemotron-Nano-8B, Qwen3-8B (thinking off); 8.5 h with judging.
 1. **Both poles are elicited.** 991 of 1,200 question pairs pass gemma-qat's gate, and every model keeps all six
    factors. Thin cells: Nemotron-Nano C (9 of 40), Granite H (17), Nemotron-Nano H (18). E and N elicit best, H
@@ -445,19 +448,55 @@ Nemotron-Nano-8B, Qwen3-8B (thinking off); 8.5 h with judging.
 2. **The six factors are separable.** Single default layer, chance 17%: cosine 94.6% cross-validated and 96.0%
    held out; RP-LSH at 1024 bits 94.0% and 95.6%, at 256 bits 91.5% and 92.9%. persona-lsh's seven traits on the
    same models: 98.1% and 99.3%. The self-report directions identified an item's factor 20-63% of the time.
-3. **The judges agree on totals** (991 against 987 eliciting pairs). Per-question agreement is not read yet.
-4. **Transfer holds in the Llama pair:** 91% and 93%, as good as each model's own cross-validation.
-5. **Not read yet:** which pole fails, the confused pairs (A with H?), one axis or six, digest size, judges per
-   rubric. They need `hexaco-lsh-results.ipynb` run on the output directory.
+3. **The low poles are what fail, and nothing is refused.** Of the 209 failed pairs, 161 are the low pole not
+   taken and 48 the high pole; no refusals under gemma-qat. Low-pole failures: H 54, A 41, C 35, O 25, E 6, N 0.
+   Nemotron-Nano has 107 of the 209.
+4. **Half the mistakes are A with H.** 47 mistakes in 991 classifications: A/H 24, C/H 10, O/E 5, C/A 4, others
+   4. Neuroticism is in 2 (the self-report run confused everything with it). Questions asked with agreeableness
+   instruction pair 4 classify at 21% and honesty-humility pair 2 at 43%, against 84-100% for the other pairs:
+   pair 4 is written on the Big Five's Morality and Modesty facets, which HEXACO puts under honesty-humility.
+   So part of the A-H confusion is the trait data mixing the two taxonomies.
+5. **Six directions with a structure, not one axis.** The first component holds 33-42% of the six directions'
+   variance (17% if orthogonal). It is A, H, C against N, with O and E leaning to the N side; it is not social
+   desirability (desirable-keyed mean cosine +0.04 to +0.17). A with H is +0.53 and N against C -0.40 in 5 of 5
+   runs, as predicted; N with E is +0.23, against the prediction, in 5 of 5. O with E is +0.34. This is close to
+   the stability and plasticity factors reported for people.
+6. **The digest's limit is the directions.** Exact cosine has a 4.0% error floor (persona-lsh: about 1%). RP-LSH
+   is 2 points above it at 256 bits, 0.7 at 1024, on it from 2048. Only Granite reaches 98% (256 bits).
+7. **The judges agree on the gate (91%, kappa 0.69) less than on persona-lsh's rubrics (0.80), and on scores
+   much less (rho 0.50 against 0.81).** Openness is the weak rubric (kappa 0.22). The choice of judge doesn't
+   change the classification (96.0% and 96.1%).
+8. **A failed gate is a weak shift, not none:** failed pairs still classify as their instructed factor 70% of
+   the time. Transfer holds in the Llama pair (91% and 93%).
+9. **Granite's replies are reasoning text:** 94% hit the 256-token cap (its template opens `<think>`). Its 100%
+   is on that text, here and in persona-lsh. `granite4.2-8b-nothink` is still owed.
+10. **Trait data to fix** (`hexaco-lsh-results` 2b): 21 of 240 questions fail in three or more runs (H 7, A 6,
+    O 4, C 3, E 1); weak instruction pairs are H pair 2 (35% eliciting), A pair 4 (48%), H pair 1 (54%), O pair
+    4 (64%).
 
-**The cross-reference, rebuilt 2026-11-24** (`experiments/trait-crossref.ipynb`, not yet run). Factor directions
-from hexaco-lsh only; the self-report source and the two sections that needed it (transfer to held-out inventory
-answers, prompt lean) are gone with `persona-hexaco`. Since both sides now come from one procedure, the risk is a
-cosine that comes from what the procedures share, so it adds: split-half reliability as the ceiling, a bootstrap
-interval over questions beside the sign-flip null, the component common to all thirteen directions and the
-matrix without it, question-level poles (which of the twelve factor poles a trait reply lands on), and each
-trait in the span of the six factors. Run it against persona-lsh `rand40-t256-s52466129` (same five models, 256
-tokens, gemma-qat's gate).
+**The cross-reference, rebuilt 2026-11-24 and run 2026-11-25** (`experiments/trait-crossref.ipynb`; persona-lsh
+`rand40-t256-s52466129` against hexaco-lsh `rand40-t256-s68853742`, the same five models, no design difference).
+Factor directions come from hexaco-lsh only; the self-report source and the two sections that needed it are gone
+with `persona-hexaco`.
+1. **The null is gone.** Mean |cosine| 0.30 (ceiling 0.92 from split-half reliability). 48 of 49 prior cells have
+   the predicted sign (the first version: 26 of 48). Median rho between two models' matrices +0.93 (was +0.15).
+2. **`evil` is low A and low H:** -0.61 and -0.54, in 4 of 4 models. `impolite` is low A (-0.77) and low C
+   (-0.50); `optimistic` high A, high E, low N; `apathetic` low A, O, E; `humorous` low C, high O and E.
+3. **A third of it is one shared axis.** The first axis of the thirteen directions holds 28-35% of their
+   variance: `impolite`, `evil`, `humorous` and N against A, H, C and `optimistic`. Without it, the priors are
+   41 of 49 and the between-model rho +0.66. `evil` with A and `impolite` with A go to zero (they are that
+   axis); `apathetic`, `optimistic` and `humorous` keep their relations to E and O in 5 of 5 runs; and
+   `sycophantic` with A appears (+0.01 to +0.38, 4 of 4), the one prior a single axis can't produce.
+4. **Whether that axis is antagonism or an artifact of the procedure can't be settled with two libraries.** It
+   needs a control library with no trait in it.
+5. **One trait is named from a single reply:** `evil` replies land on the A- or H- pole 97% of the time (chance
+   8% a pole). The other traits' top pole takes 41-54%.
+6. **Traits are at most half inside the factors:** R2 0.70 (`impolite`) to 0.21 (`hallucinating`).
+7. **RP-LSH keeps the matrix** (same sign in 97-99% of cells at 1024 bits) **but not a single reply's pole**
+   (74-81% agree with cosine at 1024 bits, 55-72% at 256): the poles are 0.06-0.09 apart.
+8. **The notebook's significance mark is unusable:** 8 of 174 cells. The sign-flip null is as wide as the effect
+   (SD 0.22), because a signed mix of a factor's question vectors still lies on their main axis. It needs a null
+   that permutes which library a direction belongs to, or the control library.
 
 **Part C, the join.** (No notebook since 2026-11-24: the capture below was `persona-hexaco.ipynb`'s. The first
 run's join is finding 9 of the first run, above; a rerun would need that notebook back from git.)
@@ -545,7 +584,11 @@ version, if it's still wanted:
 | Done, dropped | OCEAN/HEXACO part A by self-report (section 5); notebooks dropped 2026-11-24 | git history |
 | Done | Trait cross-reference on the first HEXACO run: a null (section 5) | git history |
 | Done 2026-11-24 | `hexaco-lsh`: the six factors with and without, five models (section 5 part B) | `experiments/hexaco-lsh.ipynb` |
-| Next | Run `hexaco-lsh-results.ipynb` and the rebuilt `trait-crossref.ipynb` on the output (CPU); then review the questions that don't elicit | `experiments/` |
+| Done 2026-11-25 | `hexaco-lsh-results.ipynb` and the rebuilt `trait-crossref.ipynb` on the output: six separable factors, and a cross-reference that matches the literature (section 5 part B) | `experiments/` |
+| Next (no GPU) | Fix the hexaco-lsh trait data: agreeableness on HEXACO's facets (pair 4 and its Morality and Modesty questions), honesty-humility pairs 1 and 2, the 21 questions of results 2b, the openness rubric | `experiments/trait_data_*/` |
+| Next (no GPU) | `trait-crossref`: a null that permutes library membership in place of the sign flips; pooled intervals over models | `experiments/trait-crossref.ipynb` |
+| Next night | A control library with no trait in it (instruction pairs such as formal against casual, long against short), same five models, as the reference for the shared axis | `experiments/` |
+| Next night | hexaco-lsh second draw (new seed) on the fixed trait data, with `granite4.2-8b-nothink`; then the cross-reference again | `experiments/hexaco-lsh.ipynb` |
 | Open | HEXACO second pass (scale reversal, sampling at 0.7 and 1.0, Granite rerun): was `persona-hexaco`'s, no notebook since 2026-11-24 | - |
 | After that | OpenReasoning-Nemotron-7B as the Qwen2.5 drop test (same architecture, other weights) | `experiments/`, harness `ops/gpurig2/` |
 | Weeks 3-5 | 2-bit backend and library capacity (CPU) | this repo `lsh/` |
@@ -557,8 +600,11 @@ version, if it's still wanted:
 - The exact six texts of the earlier differential prompts, and which DAN version.
 - IPIP-NEO-120 or -300 (five-factor-e has both): which one the earlier study used. (The first run used -120;
   its findings on INFO and DAN didn't reproduce, so the earlier study's exact setup matters for the comparison.)
-- The `hexaco-lsh` questions and instruction pairs (`experiments/trait_data_*/`) are candidates: read them before
-  the run, or after a first run shows which ones don't elicit (`hexaco-lsh-results.ipynb` section 2b lists them).
+- The `hexaco-lsh` questions and instruction pairs (`experiments/trait_data_*/`): the first run shows which to
+  rewrite (`hexaco-lsh-results.ipynb` section 2b and 11b). Two choices are Josiah's: move agreeableness to
+  HEXACO's facets (patience, forgiveness, gentleness, flexibility), which breaks the IPIP-NEO-120 basis of its
+  questions, or keep the Big Five's and accept the overlap with honesty-humility; and what the control library's
+  instruction pairs should be.
 - The Cisco constitutional-alignment paper: title or link.
 - Open-sourcing: the README results above are a public claim, while SBIR wants an edge (`NSF_PLAN.md`
   "Decision needed").

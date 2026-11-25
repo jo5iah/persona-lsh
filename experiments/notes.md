@@ -209,3 +209,8 @@ In this directory since 2026-11-24 (`personality/` before); [`README.md`](README
   of `persona-lsh-output`, and the telemetry from `gpu-telemetry/hexaco-lsh_*`; `HEXACO_LSH_OUTPUT` points the
   notebooks at a copy elsewhere.
 - The self-report study (`persona-hexaco*.ipynb`) was dropped on 2026-11-24; `../PLAN.md` section 5 has its results.
+- **First run (2026-11-24, analyzed 2026-11-25):** the six factors separate at 96% (chance 17%); half the mistakes
+  are agreeableness with honesty-humility, partly from two instruction pairs that cross the two; `evil` reads as
+  low A and low H in every model, and 48 of 49 prior signs hold in the cross-reference. Write-ups:
+  `hexaco-lsh-results.ipynb` section 11 and the last cell of `trait-crossref.ipynb`. What's next: `../PLAN.md`
+  section 8.
